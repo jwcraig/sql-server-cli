@@ -105,23 +105,36 @@ fn map_column_data(data: &tiberius::ColumnData<'_>) -> Value {
             .unwrap_or(Value::Null),
         #[cfg(feature = "tds73")]
         Time(value) => value
-            .as_ref()
-            .map(|v| Value::Text(v.to_string()))
+            .map(|v| Value::Text(format_tds_time(v)))
             .unwrap_or(Value::Null),
         #[cfg(feature = "tds73")]
         Date(value) => value
-            .as_ref()
-            .map(|v| Value::Text(v.to_string()))
+            .map(|v| {
+                let (y, m, d) = days_to_ymd_from_year1(v.days() as i64);
+                Value::Text(format!("{:04}-{:02}-{:02}", y, m, d))
+            })
             .unwrap_or(Value::Null),
         #[cfg(feature = "tds73")]
         DateTime2(value) => value
-            .as_ref()
-            .map(|v| Value::Text(v.to_string()))
+            .map(|v| {
+                let (y, m, d) = days_to_ymd_from_year1(v.date().days() as i64);
+                let time_str = format_tds_time(v.time());
+                Value::Text(format!("{:04}-{:02}-{:02} {}", y, m, d, time_str))
+            })
             .unwrap_or(Value::Null),
         #[cfg(feature = "tds73")]
         DateTimeOffset(value) => value
-            .as_ref()
-            .map(|v| Value::Text(v.to_string()))
+            .map(|v| {
+                let (y, m, d) = days_to_ymd_from_year1(v.datetime2().date().days() as i64);
+                let time_str = format_tds_time(v.datetime2().time());
+                let offset_mins = v.offset();
+                let sign = if offset_mins >= 0 { '+' } else { '-' };
+                let abs_mins = offset_mins.abs();
+                Value::Text(format!(
+                    "{:04}-{:02}-{:02} {} {}{:02}:{:02}",
+                    y, m, d, time_str, sign, abs_mins / 60, abs_mins % 60
+                ))
+            })
             .unwrap_or(Value::Null),
     }
 }
@@ -165,4 +178,63 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
 
 fn is_leap_year(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Convert days since year 1 (Jan 1, year 1) to (year, month, day)
+/// Used for TDS 7.3+ Date/DateTime2/DateTimeOffset types
+#[cfg(feature = "tds73")]
+fn days_to_ymd_from_year1(days: i64) -> (i32, u32, u32) {
+    let mut year = 1i32;
+    let mut remaining = days;
+
+    // Fast-forward years
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining < days_in_year {
+            break;
+        }
+        remaining -= days_in_year;
+        year += 1;
+    }
+
+    // Find month
+    let leap = is_leap_year(year);
+    let days_in_months: [i64; 12] = if leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1u32;
+    for &dim in &days_in_months {
+        if remaining < dim {
+            break;
+        }
+        remaining -= dim;
+        month += 1;
+    }
+
+    let day = (remaining + 1) as u32;
+    (year, month, day)
+}
+
+/// Format TDS 7.3 Time type to string
+#[cfg(feature = "tds73")]
+fn format_tds_time(time: tiberius::time::Time) -> String {
+    let increments = time.increments();
+    let scale = time.scale();
+    // Convert increments to nanoseconds
+    let nanos = increments * 10u64.pow(9 - scale as u32);
+    let total_secs = nanos / 1_000_000_000;
+    let frac_nanos = nanos % 1_000_000_000;
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    let secs = total_secs % 60;
+    if frac_nanos > 0 {
+        // Trim trailing zeros from fractional part
+        let frac_str = format!("{:09}", frac_nanos).trim_end_matches('0').to_string();
+        format!("{:02}:{:02}:{:02}.{}", hours, mins, secs, frac_str)
+    } else {
+        format!("{:02}:{:02}:{:02}", hours, mins, secs)
+    }
 }

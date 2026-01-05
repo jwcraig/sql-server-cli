@@ -32,6 +32,7 @@ predicates = "3.0"
 tempfile = "3.10"
 
 [features]
+default = ["tds73"]
 tds73 = ["tiberius/tds73"]
 
 [package.metadata.binstall]
