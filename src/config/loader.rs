@@ -12,6 +12,7 @@ use super::schema::{
 #[derive(Debug, Clone, Default)]
 pub struct CliOverrides {
     pub config_path: Option<PathBuf>,
+    pub env_file: Option<PathBuf>,
     pub profile: Option<String>,
     pub server: Option<String>,
     pub port: Option<u16>,
@@ -336,21 +337,48 @@ fn apply_env_overrides(
         }
     }
 
-    if let Some(server) = env.get_any(&["SQL_SERVER", "SQLSERVER_HOST", "DB_HOST"]) {
+    if let Some(server) = env.get_any(&[
+        "SQL_SERVER",
+        "SQLSERVER_HOST",
+        "DB_HOST",
+        "MSSQL_HOST",
+        "SQLCMDSERVER",
+    ]) {
         connection.server = server;
     }
-    if let Some(port) = env.get_any(&["SQL_PORT", "SQLSERVER_PORT", "DB_PORT"]) {
+    if let Some(port) = env.get_any(&["SQL_PORT", "SQLSERVER_PORT", "DB_PORT", "MSSQL_PORT"]) {
         if let Ok(port) = port.parse::<u16>() {
             connection.port = port;
         }
     }
-    if let Some(database) = env.get_any(&["SQL_DATABASE", "SQLSERVER_DB", "DATABASE", "DB_NAME"]) {
+    if let Some(database) = env.get_any(&[
+        "SQL_DATABASE",
+        "SQLSERVER_DB",
+        "DATABASE",
+        "DB_NAME",
+        "MSSQL_DATABASE",
+        "SQLCMDDBNAME",
+    ]) {
         connection.database = database;
     }
-    if let Some(user) = env.get_any(&["SQL_USER", "SQLSERVER_USER", "DB_USER"]) {
+    if let Some(user) = env.get_any(&[
+        "SQL_USER",
+        "SQLSERVER_USER",
+        "DB_USER",
+        "MSSQL_USER",
+        "SQLCMDUSER",
+    ]) {
         connection.user = Some(user);
     }
-    if let Some(password) = env.get_any(&["SQL_PASSWORD", "SQLSERVER_PASSWORD", "DB_PASSWORD"]) {
+    if let Some(password) = env.get_any(&[
+        "SQL_PASSWORD",
+        "SA_PASSWORD",
+        "MSSQL_SA_PASSWORD",
+        "SQLSERVER_PASSWORD",
+        "DB_PASSWORD",
+        "MSSQL_PASSWORD",
+        "SQLCMDPASSWORD",
+    ]) {
         connection.password = Some(password);
     }
     if let Some(encrypt) = env.get("SQL_ENCRYPT").and_then(|v| parse_bool(&v)) {

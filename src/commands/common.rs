@@ -9,6 +9,7 @@ use crate::output;
 pub fn overrides_from_args(args: &CliArgs) -> CliOverrides {
     CliOverrides {
         config_path: args.config_path.clone(),
+        env_file: args.env_file.clone(),
         profile: args.profile.clone(),
         server: args.server.clone(),
         port: args.port,

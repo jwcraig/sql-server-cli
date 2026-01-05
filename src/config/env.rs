@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 #[derive(Debug, Clone, Default)]
 pub struct Env {
@@ -6,9 +7,19 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn from_system() -> Self {
-        // Load .env file if present (silently ignore if missing)
-        let _ = dotenvy::dotenv();
+    /// Load environment variables from the system, optionally loading a custom env file first.
+    /// If `env_file` is None, loads `.env` from the current directory (if present).
+    /// If `env_file` is Some(path), loads that file instead (silently ignores if missing).
+    pub fn from_system(env_file: Option<&Path>) -> Self {
+        // Load env file (custom path or default .env)
+        match env_file {
+            Some(path) => {
+                let _ = dotenvy::from_path(path);
+            }
+            None => {
+                let _ = dotenvy::dotenv();
+            }
+        }
         let vars = std::env::vars().collect();
         Self { vars }
     }

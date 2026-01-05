@@ -12,6 +12,7 @@ pub struct OutputFlags {
 #[derive(Debug, Clone)]
 pub struct CliArgs {
     pub config_path: Option<PathBuf>,
+    pub env_file: Option<PathBuf>,
     pub profile: Option<String>,
     pub server: Option<String>,
     pub port: Option<u16>,
@@ -250,6 +251,14 @@ fn add_global_args(cmd: Command) -> Command {
             .value_hint(ValueHint::FilePath)
             .global(true)
             .help("Override config file location"),
+    )
+    .arg(
+        Arg::new("env-file")
+            .long("env-file")
+            .value_name("PATH")
+            .value_hint(ValueHint::FilePath)
+            .global(true)
+            .help("Load environment variables from file (default: .env)"),
     )
     .arg(
         Arg::new("profile")
@@ -811,6 +820,7 @@ fn command_integrations(show_all: bool) -> Command {
 
 fn parse_matches(matches: &ArgMatches) -> CliArgs {
     let config_path = matches.get_one::<String>("config").map(PathBuf::from);
+    let env_file = matches.get_one::<String>("env-file").map(PathBuf::from);
     let profile = matches.get_one::<String>("profile").cloned();
     let server = matches.get_one::<String>("server").cloned();
     let port = matches.get_one::<u16>("port").copied();
@@ -952,6 +962,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
 
     CliArgs {
         config_path,
+        env_file,
         profile,
         server,
         port,

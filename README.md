@@ -4,6 +4,37 @@ SQL Server CLI for AI coding agents.
 
 One install. Your agents automatically know how to inspect SQL Server databases, run safe queries, and export results.
 
+## Why sscli?
+
+|                            |                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| **Token-efficient**        | Markdown output by default keeps agent context lean                            |
+| **Read-only default**      | Blocks INSERT, UPDATE, DELETE unless overridden (--allow-write) — no accidents |
+| **Single binary**          | Fast startup, no runtime dependencies                                          |
+| **CLI over MCP**           | No "tool bloat" from verbose tool descriptions for tools that are rarely used  |
+| **Progressive disclosure** | Core commands visible, advanced disclosed when needed                          |
+
+## Why not sqlcmd
+
+`sqlcmd` is a great general-purpose SQL Server client, especially for interactive sessions and ad-hoc work.
+
+For tool-calling agents, `sqlcmd` tends to be a poor fit because it's optimized for humans, not for
+structured, repeatable automation:
+
+- **Output is hard to consume**: `sqlcmd` output is human-oriented text; agents usually want stable
+  markdown tables or a single JSON object they can reliably parse.
+- **Schema discovery is manual**: you end up writing catalog queries (`sys.tables`, `INFORMATION_SCHEMA`, etc.)
+  instead of calling purpose-built primitives like `sscli tables`, `sscli describe`, and `sscli columns`.
+- **No safety guardrails**: `sqlcmd` will happily run destructive statements if an agent makes a mistake.
+  `sscli sql` blocks writes by default and requires `--allow-write` for mutations.
+- **More setup friction**: `sqlcmd` is typically installed via Microsoft tooling and may require ODBC drivers
+  depending on platform/CI image; sscli is a single binary with config + env var discovery built in.
+- **No agent integration**: sscli can install a reusable skill/extension so agents "know the tool" without you
+  pasting usage docs into every prompt.
+
+Keep `sqlcmd` for interactive SQL. Reach for sscli when you want safe-by-default queries, fast schema
+inspection, and output formats that are easy for agents to use.
+
 ## Quick Start (Agent Users)
 
 **1. Install sscli**
@@ -31,12 +62,12 @@ sscli integrations gemini add --global   # Gemini CLI
 
 ### What changes?
 
-| Before                                | After                                                   |
-| ------------------------------------- | ------------------------------------------------------- |
-| You paste schema context into prompts | Agent discovers schema on demand                        |
-| Agent guesses at SQL Server commands  | Agent knows `sscli tables`, `sscli describe`, etc.      |
-| Risk of accidental writes             | Read-only by default, explicit `--allow-write` override |
-| Verbose output bloats context         | Token-efficient markdown output                         |
+| Before                                | After                                                        |
+| ------------------------------------- | ------------------------------------------------------------ |
+| You paste schema context into prompts | Agent discovers schema on demand                             |
+| Agent guesses at SQL Server commands  | Agent knows `sscli tables`, `sscli describe <Object>`, etc.  |
+| Risk of accidental writes             | Read-only by default, explicit `--allow-write` override      |
+| Verbose output bloats context         | Token-efficient markdown output by default, --json if needed |
 
 ## Manual Usage
 
@@ -48,7 +79,7 @@ For humans who want to use sscli directly.
 # Create a starter config in ./.sql-server/config.yaml (safe defaults)
 sscli init
 
-# Set the password env var referenced by passwordEnv in your config
+# Set the password env var referenced by passwordEnv in your config. sscli also reads
 export SQL_PASSWORD='...'
 
 # Sanity-check connectivity + server metadata
@@ -67,19 +98,8 @@ sscli tables --like "%User%" --describe   # Describe all User-related tables
 sscli describe Users                      # DDL, columns, indexes, triggers
 sscli describe T_Users_Trig               # Trigger definition (auto-detected)
 sscli sql "SELECT TOP 5 * FROM Users"
+sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
 ```
-
-## Why sscli?
-
-|                            |                                                     |
-| -------------------------- | --------------------------------------------------- |
-| **Token-efficient**        | Markdown output by default keeps agent context lean |
-| **Read-only safe**         | Blocks INSERT, UPDATE, DELETE — no accidents        |
-| **Single binary**          | Fast startup, no runtime dependencies               |
-| **CLI over MCP**           | No "tool bloat" from long-running servers           |
-| **Progressive disclosure** | Core commands visible, advanced hidden until needed |
-
-For interactive SQL, keep using `sqlcmd`. For agent workflows, scripts, and CI — sscli is built for that.
 
 ## Installation
 
@@ -141,12 +161,12 @@ cargo install sscli --force
 
 ### Supported agents
 
-| Agent        | Command                                                  | What it installs                  |
-| ------------ | -------------------------------------------------------- | --------------------------------- |
-| Claude Code  | `sscli integrations skills add --global`                 | `~/.claude/skills/sscli/SKILL.md` |
-| Codex        | (same command)                                           | `~/.codex/skills/sscli/SKILL.md`  |
-| Gemini CLI   | `sscli integrations gemini add --global`                 | `~/.gemini/extensions/sscli/`     |
-| Other agents | Via [OpenSkills](https://github.com/numman-ali/openskills) | Bridge to installed skills        |
+| Agent                 | Command                                                    | What it installs                  |
+| --------------------- | ---------------------------------------------------------- | --------------------------------- |
+| Claude Code           | `sscli integrations skills add --global`                   | `~/.claude/skills/sscli/SKILL.md` |
+| Codex                 | (same command)                                             | `~/.codex/skills/sscli/SKILL.md`  |
+| Gemini CLI            | `sscli integrations gemini add --global`                   | `~/.gemini/extensions/sscli/`     |
+| Other agent harnesses | Via [OpenSkills](https://github.com/numman-ali/openskills) | Bridge to installed skills        |
 
 ### Per-project vs global
 
@@ -227,21 +247,30 @@ For a fully commented example (including `settings.output.*`, `timeout`, and `de
 
 Environment variables override values from the config file.
 
-**`.env` file support:** sscli automatically loads a `.env` file from the current directory if present. This is useful for local development without polluting your shell environment.
+**`.env` file support:** sscli automatically loads a `.env` file from the current directory if present, reading any of the supported variables listed below. Use `--env-file` to load a different file (e.g., `--env-file .env.dev`). This is useful for local development without polluting your shell environment.
 
-| Purpose | Environment variables (first match wins) |
-| --- | --- |
-| Config path | `SQL_SERVER_CONFIG`, `SQLSERVER_CONFIG` |
-| Profile | `SQL_SERVER_PROFILE`, `SQLSERVER_PROFILE` |
-| Connection URL | `DATABASE_URL`, `DB_URL`, `SQLSERVER_URL` |
-| Server | `SQL_SERVER`, `SQLSERVER_HOST`, `DB_HOST` |
-| Port | `SQL_PORT`, `SQLSERVER_PORT`, `DB_PORT` |
-| Database | `SQL_DATABASE`, `SQLSERVER_DB`, `DATABASE`, `DB_NAME` |
-| User | `SQL_USER`, `SQLSERVER_USER`, `DB_USER` |
-| Password | `SQL_PASSWORD`, `SQLSERVER_PASSWORD`, `DB_PASSWORD` |
-| Encrypt | `SQL_ENCRYPT` |
-| Trust server certificate | `SQL_TRUST_SERVER_CERTIFICATE` |
-| Connect timeout (ms) | `SQL_CONNECT_TIMEOUT`, `DB_CONNECT_TIMEOUT` |
+| Purpose                  | Environment variables (first match wins)                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Config path              | `SQL_SERVER_CONFIG`, `SQLSERVER_CONFIG`                                                                   |
+| Profile                  | `SQL_SERVER_PROFILE`, `SQLSERVER_PROFILE`                                                                 |
+| Connection URL           | `DATABASE_URL`, `DB_URL`, `SQLSERVER_URL`                                                                 |
+| Server                   | `SQL_SERVER`, `SQLSERVER_HOST`, `DB_HOST`, `MSSQL_HOST`                                                   |
+| Port                     | `SQL_PORT`, `SQLSERVER_PORT`, `DB_PORT`, `MSSQL_PORT`                                                     |
+| Database                 | `SQL_DATABASE`, `SQLSERVER_DB`, `DATABASE`, `DB_NAME`, `MSSQL_DATABASE`                                   |
+| User                     | `SQL_USER`, `SQLSERVER_USER`, `DB_USER`, `MSSQL_USER`                                                     |
+| Password                 | `SQL_PASSWORD`, `SA_PASSWORD`, `MSSQL_SA_PASSWORD`, `SQLSERVER_PASSWORD`, `DB_PASSWORD`, `MSSQL_PASSWORD` |
+| Encrypt                  | `SQL_ENCRYPT`                                                                                             |
+| Trust server certificate | `SQL_TRUST_SERVER_CERTIFICATE`                                                                            |
+| Connect timeout (ms)     | `SQL_CONNECT_TIMEOUT`, `DB_CONNECT_TIMEOUT`                                                               |
+
+**sqlcmd compatibility:** The following `sqlcmd` environment variables are also supported:
+
+| Purpose  | Variable         |
+| -------- | ---------------- |
+| Server   | `SQLCMDSERVER`   |
+| User     | `SQLCMDUSER`     |
+| Password | `SQLCMDPASSWORD` |
+| Database | `SQLCMDDBNAME`   |
 
 ## Commands
 
@@ -293,14 +322,14 @@ Override with `--allow-write` when you intentionally need mutations.
 
 Each command returns a stable top-level object:
 
-| Command      | Shape                                                                                    |
-| ------------ | ---------------------------------------------------------------------------------------- |
-| `status`     | `{ status, latencyMs, serverName, serverVersion, currentDatabase, timestamp, warnings }` |
-| `databases`  | `{ total, count, offset, limit, hasMore, nextOffset, databases: [...] }`                 |
-| `tables`     | `{ total, count, offset, limit, hasMore, nextOffset, tables: [...] }`                    |
+| Command      | Shape                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `status`     | `{ status, latencyMs, serverName, serverVersion, currentDatabase, timestamp, warnings }`           |
+| `databases`  | `{ total, count, offset, limit, hasMore, nextOffset, databases: [...] }`                           |
+| `tables`     | `{ total, count, offset, limit, hasMore, nextOffset, tables: [...] }`                              |
 | `describe`   | `{ object: {schema, name, type}, columns, ddl?, indexes?, triggers?, foreignKeys?, constraints? }` |
-| `table-data` | `{ table, columns, rows, total, offset, limit, hasMore, nextOffset }`                    |
-| `sql`        | `{ success, batches, resultSets, csvPaths? }`                                            |
+| `table-data` | `{ table, columns, rows, total, offset, limit, hasMore, nextOffset }`                              |
+| `sql`        | `{ success, batches, resultSets, csvPaths? }`                                                      |
 
 Errors (stderr):
 

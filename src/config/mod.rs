@@ -16,7 +16,7 @@ pub fn load_from_system(cli: &CliOverrides) -> anyhow::Result<ResolvedConfig> {
     let cwd = std::env::current_dir()?;
     let home_dir = dirs::home_dir();
     let xdg_config_dir = dirs::config_dir();
-    let env = Env::from_system();
+    let env = Env::from_system(cli.env_file.as_deref());
     let options = LoadOptions {
         cli: cli.clone(),
         cwd,
