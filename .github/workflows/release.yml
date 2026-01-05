@@ -130,3 +130,66 @@ jobs:
             Created by https://github.com/mislav/bump-homebrew-formula-action
         env:
           COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  update-scoop:
+    name: Update Scoop Manifest
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SCOOP_BUCKET_TOKEN != '' }}
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sscli-x86_64-pc-windows-msvc
+          path: artifacts
+
+      - name: Compute Windows zip sha256
+        id: windows_hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256="$(sha256sum sscli-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout scoop bucket
+        uses: actions/checkout@v4
+        with:
+          repository: jwcraig/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+
+      - name: Update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scoop-bucket
+          version="${{ needs.release.outputs.version }}"
+          sha256="${{ steps.windows_hash.outputs.sha256 }}"
+
+          jq \
+            --arg version "$version" \
+            --arg sha256 "$sha256" \
+            '.version = $version
+             | .architecture."64bit".url = ("https://github.com/jwcraig/sql-server-cli/releases/download/v" + $version + "/sscli-x86_64-pc-windows-msvc.zip")
+             | .architecture."64bit".hash = $sha256' \
+            sscli.json > sscli.json.tmp
+
+          mv sscli.json.tmp sscli.json
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add sscli.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "sscli ${{ needs.release.outputs.version }}"
+          git push
