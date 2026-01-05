@@ -24,6 +24,7 @@ jobs:
         with:
           repository: jwcraig/scoop-bucket
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          ref: main
           path: scoop-bucket
 
       - name: Verify push permission (dry-run)
@@ -32,9 +33,5 @@ jobs:
           set -euo pipefail
           cd scoop-bucket
 
-          default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|^origin/||')"
-          echo "Default branch: ${default_branch}"
-
           # This contacts the remote and exercises auth, but does not push changes.
-          git push --dry-run origin "HEAD:refs/heads/${default_branch}"
-
+          git push --dry-run origin "HEAD:refs/heads/main"
