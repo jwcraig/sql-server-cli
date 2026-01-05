@@ -1,9 +1,9 @@
 [package]
 name = "sscli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
-description = "SQL Server CLI tool for database inspection"
+description = "Agent-friendly token efficient SQL Server CLI tool for database inspection"
 license = "MIT"
 repository = "https://github.com/jwcraig/sql-server-cli"
 
