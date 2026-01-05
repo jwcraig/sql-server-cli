@@ -1,0 +1,40 @@
+name: Scoop Token Smoke Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify Scoop Bucket Token
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check secret configured
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SCOOP_BUCKET_TOKEN}" ]; then
+            echo "SCOOP_BUCKET_TOKEN is not set."
+            exit 1
+          fi
+          echo "SCOOP_BUCKET_TOKEN is set."
+
+      - name: Checkout scoop bucket
+        uses: actions/checkout@v4
+        with:
+          repository: jwcraig/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+
+      - name: Verify push permission (dry-run)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scoop-bucket
+
+          default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|^origin/||')"
+          echo "Default branch: ${default_branch}"
+
+          # This contacts the remote and exercises auth, but does not push changes.
+          git push --dry-run origin "HEAD:refs/heads/${default_branch}"
+
