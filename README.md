@@ -12,7 +12,11 @@ One install. Your agents automatically know how to inspect SQL Server databases,
 # macOS/Linux
 brew install jwcraig/tap/sscli
 
-# or with cargo
+# Windows (PowerShell)
+scoop bucket add jwcraig https://github.com/jwcraig/scoop-bucket
+scoop install sscli
+
+# or with cargo (any platform)
 cargo install sscli
 ```
 
@@ -83,6 +87,13 @@ For interactive SQL, keep using `sqlcmd`. For agent workflows, scripts, and CI â
 
 ```bash
 brew install jwcraig/tap/sscli
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add jwcraig https://github.com/jwcraig/scoop-bucket
+scoop install sscli
 ```
 
 ### Quick install script
