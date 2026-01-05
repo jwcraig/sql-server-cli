@@ -103,7 +103,7 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
             .unwrap_or(result_set.rows.len() as u64);
 
         let csv_paths = if let Some(path) = cmd.csv.as_ref() {
-            Some(csv::write_result_sets(path, &[result_set.clone()], resolved.settings.output.csv.multi_result_naming)?)
+            Some(csv::write_result_sets(path, std::slice::from_ref(&result_set), resolved.settings.output.csv.multi_result_naming)?)
         } else {
             None
         };
