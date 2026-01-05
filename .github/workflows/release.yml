@@ -161,8 +161,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd artifacts
-          sha256="$(sha256sum sscli-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
+          zip_path="$(find artifacts -maxdepth 3 -type f -name 'sscli-x86_64-pc-windows-msvc.zip' | head -n 1)"
+          if [ -z "${zip_path}" ]; then
+            echo "Windows zip artifact not found under ./artifacts"
+            find artifacts -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          sha256="$(sha256sum "${zip_path}" | awk '{print $1}')"
           echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout scoop bucket
