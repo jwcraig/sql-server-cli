@@ -1,0 +1,27 @@
+---
+name: {name}
+description: When you need to connect to a SQL Server host/database to inspect schemas, check status, sample table data, or run ad-hoc queries, use the `sscli` CLI. Prefer markdown output for token efficiency (default) and `--json` for machine-readable results.
+---
+
+# SQL Server CLI (agent workflow)
+
+Use `sscli` as the entrypoint for SQL Server inspection and read-only querying.
+
+## Quick Start
+
+```bash
+sscli status
+sscli tables
+sscli describe <Object> #automatic detection of Object type. Returns descriptions for all matching Objects (tables, view, triggers, procs)
+sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
+```
+
+## Output guidance
+
+- Default output is markdown (token-friendly).
+- For machine-readable results, add `--json`.
+
+## Safety
+
+- `sscli sql` enforces read-only SQL (SELECT/CTE + allowlist).
+- To run write queries, use `--allow-write` and confirm intent.

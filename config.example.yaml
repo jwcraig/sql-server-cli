@@ -1,0 +1,61 @@
+# sscli configuration example
+#
+# Quick setup:
+#   1) Copy this file to `.sql-server/config.yaml` (or point SQL_SERVER_CONFIG at it)
+#   2) Export the password env var(s) referenced by `passwordEnv`
+#   3) Run: `sscli status`
+#
+# Notes:
+# - `.sql-server/` is gitignored by default to avoid committing secrets.
+# - Prefer `passwordEnv` over `password`.
+
+defaultProfile: default
+
+settings:
+  # When true, sscli allows write operations by default (dangerous).
+  # You can still use `--allow-write` on a per-command basis.
+  allowWriteDefault: false
+
+  output:
+    # Output format when no explicit flag is used.
+    # Values: pretty | markdown | json
+    defaultFormat: pretty
+
+    json:
+      # Values: v1
+      contractVersion: v1
+      # Pretty-print JSON output.
+      pretty: true
+
+    csv:
+      # CSV naming when multiple result sets are exported.
+      # Values: suffix-number | placeholder
+      multiResultNaming: suffix-number
+
+profiles:
+  # Default local/dev profile.
+  default:
+    server: localhost
+    port: 1433
+    database: master
+    user: sa
+    passwordEnv: SQL_PASSWORD
+    password: null
+    encrypt: true
+    trustCert: true
+    timeout: 30000
+    defaultSchemas: [dbo]
+    settings:
+      allowWriteDefault: false
+
+  # Example second profile:
+  # staging:
+  #   server: staging-sql.example.com
+  #   port: 1433
+  #   database: app
+  #   user: app_readonly
+  #   passwordEnv: STAGING_SQL_PASSWORD
+  #   encrypt: true
+  #   trustCert: false
+  #   timeout: 30000
+  #   defaultSchemas: [dbo]

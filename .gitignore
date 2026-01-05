@@ -1,0 +1,6 @@
+tests/test-run-*.log
+/target
+
+# Local SQL Server config (may contain credentials)
+.sql-server/
+.sqlserver/
