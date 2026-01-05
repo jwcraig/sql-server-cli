@@ -188,6 +188,8 @@ For a fully commented example (including `settings.output.*`, `timeout`, and `de
 
 Environment variables override values from the config file.
 
+**`.env` file support:** sscli automatically loads a `.env` file from the current directory if present. This is useful for local development without polluting your shell environment.
+
 | Purpose | Environment variables (first match wins) |
 | --- | --- |
 | Config path | `SQL_SERVER_CONFIG`, `SQLSERVER_CONFIG` |

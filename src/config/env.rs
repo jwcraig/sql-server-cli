@@ -7,6 +7,8 @@ pub struct Env {
 
 impl Env {
     pub fn from_system() -> Self {
+        // Load .env file if present (silently ignore if missing)
+        let _ = dotenvy::dotenv();
         let vars = std::env::vars().collect();
         Self { vars }
     }
