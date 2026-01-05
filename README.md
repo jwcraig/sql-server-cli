@@ -9,6 +9,10 @@ One install. Your agents automatically know how to inspect SQL Server databases,
 **1. Install sscli**
 
 ```bash
+# macOS/Linux
+brew install jwcraig/tap/sscli
+
+# or with cargo
 cargo install sscli
 ```
 
@@ -75,11 +79,33 @@ For interactive SQL, keep using `sqlcmd`. For agent workflows, scripts, and CI â
 
 ## Installation
 
-### From source (recommended)
+### Homebrew (macOS/Linux)
+
+```bash
+brew install jwcraig/tap/sscli
+```
+
+### Quick install script
+
+```bash
+curl -sSL https://raw.githubusercontent.com/jwcraig/sql-server-cli/main/install.sh | sh
+```
+
+### Cargo binstall (fast, no compilation)
+
+```bash
+cargo binstall sscli
+```
+
+### From source
 
 ```bash
 cargo install sscli
 ```
+
+### Prebuilt binaries
+
+Download from [GitHub Releases](https://github.com/jwcraig/sql-server-cli/releases).
 
 ### Development build
 
@@ -93,10 +119,12 @@ cargo build --release
 ### Updating
 
 ```bash
+# Homebrew
+brew upgrade sscli
+
+# Cargo
 cargo install sscli --force
 ```
-
-> **Coming soon:** Homebrew formula and prebuilt binaries for Linux, macOS, and Windows.
 
 ## Agent Integration
 
