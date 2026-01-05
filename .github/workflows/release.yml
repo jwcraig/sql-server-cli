@@ -135,9 +135,21 @@ jobs:
     name: Update Scoop Manifest
     needs: [build, release]
     runs-on: ubuntu-latest
-    if: ${{ secrets.SCOOP_BUCKET_TOKEN != '' }}
     steps:
+      - name: Check configuration
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.SCOOP_BUCKET_TOKEN }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "SCOOP_BUCKET_TOKEN is not set; skipping scoop update."
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Download Windows artifact
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
         uses: actions/download-artifact@v4
         with:
           name: sscli-x86_64-pc-windows-msvc
@@ -145,6 +157,7 @@ jobs:
 
       - name: Compute Windows zip sha256
         id: windows_hash
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -153,6 +166,7 @@ jobs:
           echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout scoop bucket
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: jwcraig/scoop-bucket
@@ -160,6 +174,7 @@ jobs:
           path: scoop-bucket
 
       - name: Update manifest
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -178,6 +193,7 @@ jobs:
           mv sscli.json.tmp sscli.json
 
       - name: Commit and push
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
