@@ -89,7 +89,10 @@ fn map_column_data(data: &tiberius::ColumnData<'_>) -> Value {
                 let hours = total_secs / 3600;
                 let mins = (total_secs % 3600) / 60;
                 let secs = total_secs % 60;
-                Value::Text(format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, hours, mins, secs))
+                Value::Text(format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                    y, m, d, hours, mins, secs
+                ))
             })
             .unwrap_or(Value::Null),
         SmallDateTime(value) => value
@@ -100,7 +103,10 @@ fn map_column_data(data: &tiberius::ColumnData<'_>) -> Value {
                 let total_mins = v.seconds_fragments();
                 let hours = total_mins / 60;
                 let mins = total_mins % 60;
-                Value::Text(format!("{:04}-{:02}-{:02} {:02}:{:02}:00", y, m, d, hours, mins))
+                Value::Text(format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:00",
+                    y, m, d, hours, mins
+                ))
             })
             .unwrap_or(Value::Null),
         #[cfg(feature = "tds73")]
@@ -132,7 +138,13 @@ fn map_column_data(data: &tiberius::ColumnData<'_>) -> Value {
                 let abs_mins = offset_mins.abs();
                 Value::Text(format!(
                     "{:04}-{:02}-{:02} {} {}{:02}:{:02}",
-                    y, m, d, time_str, sign, abs_mins / 60, abs_mins % 60
+                    y,
+                    m,
+                    d,
+                    time_str,
+                    sign,
+                    abs_mins / 60,
+                    abs_mins % 60
                 ))
             })
             .unwrap_or(Value::Null),
@@ -232,7 +244,9 @@ fn format_tds_time(time: tiberius::time::Time) -> String {
     let secs = total_secs % 60;
     if frac_nanos > 0 {
         // Trim trailing zeros from fractional part
-        let frac_str = format!("{:09}", frac_nanos).trim_end_matches('0').to_string();
+        let frac_str = format!("{:09}", frac_nanos)
+            .trim_end_matches('0')
+            .to_string();
         format!("{:02}:{:02}:{:02}.{}", hours, mins, secs, frac_str)
     } else {
         format!("{:02}:{:02}:{:02}", hours, mins, secs)

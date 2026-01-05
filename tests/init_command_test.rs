@@ -22,7 +22,10 @@ fn init_creates_valid_yaml() {
         serde_yaml::from_str(&content).expect("config.yaml should be valid YAML");
 
     // Verify expected structure
-    assert!(yaml.get("defaultProfile").is_some(), "should have defaultProfile");
+    assert!(
+        yaml.get("defaultProfile").is_some(),
+        "should have defaultProfile"
+    );
     assert!(yaml.get("settings").is_some(), "should have settings");
     assert!(yaml.get("profiles").is_some(), "should have profiles");
 
@@ -32,7 +35,10 @@ fn init_creates_valid_yaml() {
         settings.get("allowWriteDefault").is_some(),
         "settings should have allowWriteDefault"
     );
-    assert!(settings.get("output").is_some(), "settings should have output");
+    assert!(
+        settings.get("output").is_some(),
+        "settings should have output"
+    );
 
     // Verify nested structure under settings.output
     let output = settings.get("output").unwrap();
@@ -46,9 +52,18 @@ fn init_creates_valid_yaml() {
     // Verify profile structure
     let profiles = yaml.get("profiles").unwrap();
     let default_profile = profiles.get("default").unwrap();
-    assert!(default_profile.get("server").is_some(), "profile should have server");
-    assert!(default_profile.get("port").is_some(), "profile should have port");
-    assert!(default_profile.get("database").is_some(), "profile should have database");
+    assert!(
+        default_profile.get("server").is_some(),
+        "profile should have server"
+    );
+    assert!(
+        default_profile.get("port").is_some(),
+        "profile should have port"
+    );
+    assert!(
+        default_profile.get("database").is_some(),
+        "profile should have database"
+    );
 }
 
 #[test]
@@ -71,7 +86,9 @@ fn init_with_custom_profile_name() {
         Some("production")
     );
     assert!(
-        yaml.get("profiles").and_then(|p| p.get("production")).is_some(),
+        yaml.get("profiles")
+            .and_then(|p| p.get("production"))
+            .is_some(),
         "should have production profile"
     );
 }

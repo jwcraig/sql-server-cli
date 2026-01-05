@@ -52,15 +52,18 @@ pub async fn connect(
     };
     tcp.set_nodelay(true)?;
     let client = if let Some(duration) = timeout_duration {
-        timeout(duration, tiberius::Client::connect(config, tcp.compat_write()))
-            .await
-            .map_err(|_| {
-                AppError::new(
-                    ErrorKind::Connection,
-                    format!("Login timed out after {} ms", settings.timeout_ms),
-                )
-            })?
-            .map_err(|err| AppError::new(ErrorKind::Connection, err.to_string()))?
+        timeout(
+            duration,
+            tiberius::Client::connect(config, tcp.compat_write()),
+        )
+        .await
+        .map_err(|_| {
+            AppError::new(
+                ErrorKind::Connection,
+                format!("Login timed out after {} ms", settings.timeout_ms),
+            )
+        })?
+        .map_err(|err| AppError::new(ErrorKind::Connection, err.to_string()))?
     } else {
         tiberius::Client::connect(config, tcp.compat_write())
             .await

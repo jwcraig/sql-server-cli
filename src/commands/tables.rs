@@ -24,7 +24,11 @@ pub fn run(args: &CliArgs, cmd: &TablesArgs) -> Result<()> {
     let with_counts = if summary { true } else { cmd.with_counts };
 
     // Use different default limit when --describe is set
-    let default_limit = if cmd.describe { DESCRIBE_LIMIT_DEFAULT } else { LIMIT_DEFAULT };
+    let default_limit = if cmd.describe {
+        DESCRIBE_LIMIT_DEFAULT
+    } else {
+        LIMIT_DEFAULT
+    };
     let (limit, limit_all) = parse_limit(cmd.limit.as_deref(), default_limit);
     let offset = common::parse_offset(cmd.offset);
     let fetch_all = summary || limit_all;
@@ -199,7 +203,9 @@ WHERE ({} = 1 OR TABLE_TYPE = 'BASE TABLE')
 
     // Handle --describe mode: describe each table instead of listing
     if cmd.describe {
-        return run_describe_mode(args, &rows, total, offset, limit, format, &resolved, &cmd.like);
+        return run_describe_mode(
+            args, &rows, total, offset, limit, format, &resolved, &cmd.like,
+        );
     }
 
     if matches!(format, OutputFormat::Json) {
@@ -257,30 +263,40 @@ fn run_describe_mode(
     }
 
     // Extract table info from rows (schema, name, type)
-    let tables: Vec<(String, String, String)> = rows.rows.iter().enumerate().filter_map(|(idx, row)| {
-        let schema = match row.first() {
-            Some(Value::Text(s)) => s.clone(),
-            _ => {
-                warn!("Skipping row {}: missing or invalid schema value", idx);
-                return None;
+    let tables: Vec<(String, String, String)> = rows
+        .rows
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, row)| {
+            let schema = match row.first() {
+                Some(Value::Text(s)) => s.clone(),
+                _ => {
+                    warn!("Skipping row {}: missing or invalid schema value", idx);
+                    return None;
+                }
+            };
+            let name = match row.get(1) {
+                Some(Value::Text(s)) => s.clone(),
+                _ => {
+                    warn!("Skipping row {}: missing or invalid name value", idx);
+                    return None;
+                }
+            };
+            // Get object type (BASE TABLE or VIEW), default to Table
+            let obj_type = match row.get(2) {
+                Some(Value::Text(s)) => {
+                    if s.to_uppercase().contains("VIEW") {
+                        "View"
+                    } else {
+                        "Table"
+                    }
+                }
+                _ => "Table",
             }
-        };
-        let name = match row.get(1) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => {
-                warn!("Skipping row {}: missing or invalid name value", idx);
-                return None;
-            }
-        };
-        // Get object type (BASE TABLE or VIEW), default to Table
-        let obj_type = match row.get(2) {
-            Some(Value::Text(s)) => {
-                if s.to_uppercase().contains("VIEW") { "View" } else { "Table" }
-            }
-            _ => "Table",
-        }.to_string();
-        Some((schema, name, obj_type))
-    }).collect();
+            .to_string();
+            Some((schema, name, obj_type))
+        })
+        .collect();
 
     if tables.is_empty() {
         println!("No tables found.");
@@ -289,9 +305,16 @@ fn run_describe_mode(
 
     // Header showing what we're describing
     if total > count {
-        println!("Describing {} of {} matching tables (use --limit to see more)\n", count, total);
+        println!(
+            "Describing {} of {} matching tables (use --limit to see more)\n",
+            count, total
+        );
     } else {
-        println!("Describing {} table{}\n", count, if count == 1 { "" } else { "s" });
+        println!(
+            "Describing {} table{}\n",
+            count,
+            if count == 1 { "" } else { "s" }
+        );
     }
 
     // Create describe args (use defaults)
@@ -326,16 +349,23 @@ fn run_describe_mode(
                     &describe_args,
                     OutputFormat::Json,
                     json_pretty,
-                ).await {
-                    Ok(result) => {
-                        match serde_json::from_str::<serde_json::Value>(&result) {
-                            Ok(v) => results.push(v),
-                            Err(e) => {
-                                warn!("Failed to parse describe output for {}.{}: {}", schema, name, e);
-                                errors.push((schema.clone(), name.clone(), format!("JSON parse error: {}", e)));
-                            }
+                )
+                .await
+                {
+                    Ok(result) => match serde_json::from_str::<serde_json::Value>(&result) {
+                        Ok(v) => results.push(v),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse describe output for {}.{}: {}",
+                                schema, name, e
+                            );
+                            errors.push((
+                                schema.clone(),
+                                name.clone(),
+                                format!("JSON parse error: {}", e),
+                            ));
                         }
-                    }
+                    },
                     Err(e) => {
                         warn!("Failed to describe {}.{}: {}", schema, name, e);
                         errors.push((schema.clone(), name.clone(), e.to_string()));
@@ -354,7 +384,9 @@ fn run_describe_mode(
                     &describe_args,
                     format,
                     false,
-                ).await {
+                )
+                .await
+                {
                     Ok(result) => print!("{}", result),
                     Err(e) => {
                         warn!("Failed to describe {}.{}: {}", schema, name, e);
@@ -385,9 +417,12 @@ fn run_describe_mode(
         });
         // Include errors if any occurred
         if !errors.is_empty() {
-            payload["errors"] = json!(errors.iter().map(|(schema, name, err)| {
-                json!({"schema": schema, "name": name, "error": err})
-            }).collect::<Vec<_>>());
+            payload["errors"] = json!(errors
+                .iter()
+                .map(|(schema, name, err)| {
+                    json!({"schema": schema, "name": name, "error": err})
+                })
+                .collect::<Vec<_>>());
         }
         let body = json_out::emit_json_value(&payload, json_pretty)?;
         println!("{}", body);
@@ -408,7 +443,10 @@ fn run_describe_mode(
         let next = next_offset.unwrap_or(offset + count);
         let remaining = total - next;
         println!("\n---");
-        println!("Showing {} of {} tables. {} more available.", count, total, remaining);
+        println!(
+            "Showing {} of {} tables. {} more available.",
+            count, total, remaining
+        );
 
         // Build suggested next command
         let mut next_cmd = String::from("sscli tables --describe");

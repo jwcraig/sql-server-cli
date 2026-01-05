@@ -129,11 +129,23 @@ pub fn run(args: &CliArgs, cmd: &DescribeArgs) -> Result<()> {
     let schema = cmd.schema.clone();
 
     // If user specified a type, use it; otherwise auto-detect
-    let forced_type = cmd.object_type.as_ref().and_then(|t| ObjectType::from_cli_type(t));
+    let forced_type = cmd
+        .object_type
+        .as_ref()
+        .and_then(|t| ObjectType::from_cli_type(t));
 
     let result = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;
-        describe_object(&mut client, object_name, schema.as_deref(), forced_type, cmd, format, json_pretty).await
+        describe_object(
+            &mut client,
+            object_name,
+            schema.as_deref(),
+            forced_type,
+            cmd,
+            format,
+            json_pretty,
+        )
+        .await
     })?;
 
     if !args.quiet {
@@ -175,11 +187,61 @@ async fn describe_all_json(
 
     for m in matches {
         let json_str = match m.object_type {
-            ObjectType::Table => describe_table(client, object_name, Some(&m.schema), cmd, OutputFormat::Json, json_pretty).await?,
-            ObjectType::View => describe_view(client, object_name, Some(&m.schema), cmd, OutputFormat::Json, json_pretty).await?,
-            ObjectType::Trigger => describe_trigger(client, object_name, Some(&m.schema), cmd, OutputFormat::Json, json_pretty).await?,
-            ObjectType::Procedure => describe_procedure(client, object_name, Some(&m.schema), cmd, OutputFormat::Json, json_pretty).await?,
-            ObjectType::Function => describe_function(client, object_name, Some(&m.schema), cmd, OutputFormat::Json, json_pretty).await?,
+            ObjectType::Table => {
+                describe_table(
+                    client,
+                    object_name,
+                    Some(&m.schema),
+                    cmd,
+                    OutputFormat::Json,
+                    json_pretty,
+                )
+                .await?
+            }
+            ObjectType::View => {
+                describe_view(
+                    client,
+                    object_name,
+                    Some(&m.schema),
+                    cmd,
+                    OutputFormat::Json,
+                    json_pretty,
+                )
+                .await?
+            }
+            ObjectType::Trigger => {
+                describe_trigger(
+                    client,
+                    object_name,
+                    Some(&m.schema),
+                    cmd,
+                    OutputFormat::Json,
+                    json_pretty,
+                )
+                .await?
+            }
+            ObjectType::Procedure => {
+                describe_procedure(
+                    client,
+                    object_name,
+                    Some(&m.schema),
+                    cmd,
+                    OutputFormat::Json,
+                    json_pretty,
+                )
+                .await?
+            }
+            ObjectType::Function => {
+                describe_function(
+                    client,
+                    object_name,
+                    Some(&m.schema),
+                    cmd,
+                    OutputFormat::Json,
+                    json_pretty,
+                )
+                .await?
+            }
         };
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
             results.push(v);
@@ -217,14 +279,27 @@ async fn describe_all_text(
         if i > 0 {
             output.push_str("\n---\n\n");
         }
-        output.push_str(&format!("## {}.{} ({})\n\n", m.schema, object_name, type_label));
+        output.push_str(&format!(
+            "## {}.{} ({})\n\n",
+            m.schema, object_name, type_label
+        ));
 
         let section = match m.object_type {
-            ObjectType::Table => describe_table(client, object_name, Some(&m.schema), cmd, format, false).await?,
-            ObjectType::View => describe_view(client, object_name, Some(&m.schema), cmd, format, false).await?,
-            ObjectType::Trigger => describe_trigger(client, object_name, Some(&m.schema), cmd, format, false).await?,
-            ObjectType::Procedure => describe_procedure(client, object_name, Some(&m.schema), cmd, format, false).await?,
-            ObjectType::Function => describe_function(client, object_name, Some(&m.schema), cmd, format, false).await?,
+            ObjectType::Table => {
+                describe_table(client, object_name, Some(&m.schema), cmd, format, false).await?
+            }
+            ObjectType::View => {
+                describe_view(client, object_name, Some(&m.schema), cmd, format, false).await?
+            }
+            ObjectType::Trigger => {
+                describe_trigger(client, object_name, Some(&m.schema), cmd, format, false).await?
+            }
+            ObjectType::Procedure => {
+                describe_procedure(client, object_name, Some(&m.schema), cmd, format, false).await?
+            }
+            ObjectType::Function => {
+                describe_function(client, object_name, Some(&m.schema), cmd, format, false).await?
+            }
         };
         output.push_str(&section);
     }
@@ -275,15 +350,19 @@ ORDER BY s.name
         let result_sets = executor::run_query(query, client).await?;
         let result_set = result_sets.into_iter().next().unwrap_or_default();
 
-        let matches: Vec<ObjectMatch> = result_set.rows.iter().filter_map(|row| {
-            row.first().and_then(|v| match v {
-                Value::Text(s) => Some(ObjectMatch {
-                    object_type: forced.clone(),
-                    schema: s.clone(),
-                }),
-                _ => None,
+        let matches: Vec<ObjectMatch> = result_set
+            .rows
+            .iter()
+            .filter_map(|row| {
+                row.first().and_then(|v| match v {
+                    Value::Text(s) => Some(ObjectMatch {
+                        object_type: forced.clone(),
+                        schema: s.clone(),
+                    }),
+                    _ => None,
+                })
             })
-        }).collect();
+            .collect();
 
         if matches.is_empty() {
             return Err(anyhow!("{} '{}' not found", forced.as_str(), object_name));
@@ -315,20 +394,24 @@ ORDER BY
     let result_sets = executor::run_query(query, client).await?;
     let result_set = result_sets.into_iter().next().unwrap_or_default();
 
-    let matches: Vec<ObjectMatch> = result_set.rows.iter().filter_map(|row| {
-        let type_str = match row.first() {
-            Some(Value::Text(s)) => s.as_str(),
-            _ => return None,
-        };
-        let schema_name = match row.get(1) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => return None,
-        };
-        ObjectType::from_sql_type(type_str).map(|obj_type| ObjectMatch {
-            object_type: obj_type,
-            schema: schema_name,
+    let matches: Vec<ObjectMatch> = result_set
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let type_str = match row.first() {
+                Some(Value::Text(s)) => s.as_str(),
+                _ => return None,
+            };
+            let schema_name = match row.get(1) {
+                Some(Value::Text(s)) => s.clone(),
+                _ => return None,
+            };
+            ObjectType::from_sql_type(type_str).map(|obj_type| ObjectMatch {
+                object_type: obj_type,
+                schema: schema_name,
+            })
         })
-    }).collect();
+        .collect();
 
     if matches.is_empty() {
         return Err(anyhow!("Object '{}' not found", object_name));
@@ -369,7 +452,11 @@ async fn describe_table(
     };
     let triggers_rs = if include_triggers {
         let t = fetch_triggers(client, table_name, schema).await?;
-        if t.rows.is_empty() { None } else { Some(t) }
+        if t.rows.is_empty() {
+            None
+        } else {
+            Some(t)
+        }
     } else {
         None
     };
@@ -413,7 +500,14 @@ async fn describe_view(
         None
     };
 
-    format_view_output(view_name, schema.unwrap_or("dbo"), &columns_rs, ddl.as_deref(), format, json_pretty)
+    format_view_output(
+        view_name,
+        schema.unwrap_or("dbo"),
+        &columns_rs,
+        ddl.as_deref(),
+        format,
+        json_pretty,
+    )
 }
 
 async fn describe_trigger(
@@ -495,8 +589,14 @@ WHERE tr.name = @P1
 
         output.push_str(&format!("Parent Table: {}\n", parent_table));
         output.push_str(&format!("Events: {}\n", events));
-        output.push_str(&format!("Disabled: {}\n", if is_disabled { "yes" } else { "no" }));
-        output.push_str(&format!("Instead Of: {}\n", if is_instead_of { "yes" } else { "no" }));
+        output.push_str(&format!(
+            "Disabled: {}\n",
+            if is_disabled { "yes" } else { "no" }
+        ));
+        output.push_str(&format!(
+            "Instead Of: {}\n",
+            if is_instead_of { "yes" } else { "no" }
+        ));
     }
 
     Ok(output)
@@ -577,7 +677,11 @@ ORDER BY p.parameter_id
         if !params_rs.rows.is_empty() {
             output.push_str("Parameters\n");
             let params_display = format_params_result_set(&params_rs);
-            output.push_str(&table::render_result_set_table(&params_display, format, &TableOptions::default()));
+            output.push_str(&table::render_result_set_table(
+                &params_display,
+                format,
+                &TableOptions::default(),
+            ));
         } else {
             output.push_str("(no parameters)\n");
         }
@@ -651,12 +755,16 @@ ORDER BY p.parameter_id
     let mut output = String::new();
 
     if matches!(format, OutputFormat::Json) {
-        let params: Vec<_> = params_rs.rows.iter().map(|row| {
-            json!({
-                "name": value_to_string(row.first()),
-                "dataType": value_to_string(row.get(1)),
+        let params: Vec<_> = params_rs
+            .rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "name": value_to_string(row.first()),
+                    "dataType": value_to_string(row.get(1)),
+                })
             })
-        }).collect();
+            .collect();
 
         let mut payload = json!({
             "object": {
@@ -685,7 +793,11 @@ ORDER BY p.parameter_id
         if !params_rs.rows.is_empty() {
             output.push_str("Parameters\n");
             let params_display = format_fn_params_result_set(&params_rs);
-            output.push_str(&table::render_result_set_table(&params_display, format, &TableOptions::default()));
+            output.push_str(&table::render_result_set_table(
+                &params_display,
+                format,
+                &TableOptions::default(),
+            ));
         } else {
             output.push_str("(no parameters)\n");
         }
@@ -757,14 +869,16 @@ ORDER BY i.name, ic.key_ordinal, ic.index_column_id;
     let mut grouped: BTreeMap<String, IndexInfo> = BTreeMap::new();
     for row in result_set.rows {
         let index_name = value_to_string(row.first());
-        let entry = grouped.entry(index_name.clone()).or_insert_with(|| IndexInfo {
-            name: index_name.clone(),
-            index_type: value_to_string(row.get(1)),
-            is_unique: value_to_bool(row.get(2)),
-            is_primary: value_to_bool(row.get(3)),
-            key_columns: Vec::new(),
-            included_columns: Vec::new(),
-        });
+        let entry = grouped
+            .entry(index_name.clone())
+            .or_insert_with(|| IndexInfo {
+                name: index_name.clone(),
+                index_type: value_to_string(row.get(1)),
+                is_unique: value_to_bool(row.get(2)),
+                is_primary: value_to_bool(row.get(3)),
+                key_columns: Vec::new(),
+                included_columns: Vec::new(),
+            });
         let column_name = value_to_string(row.get(6));
         let is_included = value_to_bool(row.get(4));
         if is_included {
@@ -827,18 +941,40 @@ ORDER BY fk.name, fkc.constraint_column_id;
         let delete_rule = value_to_string(row.get(8));
 
         let is_outbound = parent_table.eq_ignore_ascii_case(table_name);
-        let entry = grouped.entry(fk_name.clone()).or_insert_with(|| ForeignKeyInfo {
-            name: fk_name.clone(),
-            direction: if is_outbound { "outbound".to_string() } else { "inbound".to_string() },
-            from_schema: if is_outbound { parent_schema.clone() } else { ref_schema.clone() },
-            from_table: if is_outbound { parent_table.clone() } else { ref_table.clone() },
-            to_schema: if is_outbound { ref_schema.clone() } else { parent_schema.clone() },
-            to_table: if is_outbound { ref_table.clone() } else { parent_table.clone() },
-            columns: Vec::new(),
-            referenced_columns: Vec::new(),
-            update_rule: update_rule.clone(),
-            delete_rule: delete_rule.clone(),
-        });
+        let entry = grouped
+            .entry(fk_name.clone())
+            .or_insert_with(|| ForeignKeyInfo {
+                name: fk_name.clone(),
+                direction: if is_outbound {
+                    "outbound".to_string()
+                } else {
+                    "inbound".to_string()
+                },
+                from_schema: if is_outbound {
+                    parent_schema.clone()
+                } else {
+                    ref_schema.clone()
+                },
+                from_table: if is_outbound {
+                    parent_table.clone()
+                } else {
+                    ref_table.clone()
+                },
+                to_schema: if is_outbound {
+                    ref_schema.clone()
+                } else {
+                    parent_schema.clone()
+                },
+                to_table: if is_outbound {
+                    ref_table.clone()
+                } else {
+                    parent_table.clone()
+                },
+                columns: Vec::new(),
+                referenced_columns: Vec::new(),
+                update_rule: update_rule.clone(),
+                delete_rule: delete_rule.clone(),
+            });
 
         if entry.direction == "outbound" {
             entry.columns.push(parent_column);
@@ -881,11 +1017,13 @@ ORDER BY tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;
         let name = value_to_string(row.first());
         let constraint_type = value_to_string(row.get(1));
         let column_name = value_to_string(row.get(2));
-        let entry = grouped.entry(name.clone()).or_insert_with(|| ConstraintInfo {
-            name: name.clone(),
-            constraint_type: constraint_type.clone(),
-            columns: Vec::new(),
-        });
+        let entry = grouped
+            .entry(name.clone())
+            .or_insert_with(|| ConstraintInfo {
+                name: name.clone(),
+                constraint_type: constraint_type.clone(),
+                columns: Vec::new(),
+            });
         if !column_name.is_empty() {
             entry.columns.push(column_name);
         }
@@ -1049,14 +1187,23 @@ async fn fetch_object_definition(
     }))
 }
 
-fn format_type_spec(data_type: &str, max_length: Option<i64>, precision: Option<u8>, scale: Option<u8>) -> String {
+fn format_type_spec(
+    data_type: &str,
+    max_length: Option<i64>,
+    precision: Option<u8>,
+    scale: Option<u8>,
+) -> String {
     match data_type.to_lowercase().as_str() {
         "varchar" | "nvarchar" | "char" | "nchar" | "varbinary" | "binary" => {
             if let Some(len) = max_length {
                 if len == -1 {
                     format!("{}(MAX)", data_type)
                 } else {
-                    let display_len = if data_type.starts_with('n') { len / 2 } else { len };
+                    let display_len = if data_type.starts_with('n') {
+                        len / 2
+                    } else {
+                        len
+                    };
                     format!("{}({})", data_type, display_len)
                 }
             } else {
@@ -1117,7 +1264,8 @@ fn format_table_output(
         });
 
         if include_indexes && !indexes.is_empty() {
-            payload["indexes"] = serde_json::Value::Array(indexes.iter().map(index_to_json).collect());
+            payload["indexes"] =
+                serde_json::Value::Array(indexes.iter().map(index_to_json).collect());
         }
         if include_fks && !fks.is_empty() {
             payload["foreignKeys"] = serde_json::Value::Array(fks.iter().map(fk_to_json).collect());
@@ -1128,7 +1276,8 @@ fn format_table_output(
             );
         }
         if let Some(triggers) = triggers_rs {
-            payload["triggers"] = serde_json::Value::Array(json_out::result_set_rows_to_objects(triggers));
+            payload["triggers"] =
+                serde_json::Value::Array(json_out::result_set_rows_to_objects(triggers));
         }
         if let Some(ddl_text) = ddl {
             payload["ddl"] = json!(ddl_text);
@@ -1143,29 +1292,49 @@ fn format_table_output(
         }
 
         output.push_str("Columns\n");
-        output.push_str(&table::render_result_set_table(columns_rs, format, &TableOptions::default()));
+        output.push_str(&table::render_result_set_table(
+            columns_rs,
+            format,
+            &TableOptions::default(),
+        ));
 
         if include_indexes && !indexes.is_empty() {
             output.push_str("\nIndexes\n");
             let rs = indexes_to_result_set(indexes);
-            output.push_str(&table::render_result_set_table(&rs, format, &TableOptions::default()));
+            output.push_str(&table::render_result_set_table(
+                &rs,
+                format,
+                &TableOptions::default(),
+            ));
         }
 
         if include_fks && !fks.is_empty() {
             output.push_str("\nForeign Keys\n");
             let rs = fks_to_result_set(fks);
-            output.push_str(&table::render_result_set_table(&rs, format, &TableOptions::default()));
+            output.push_str(&table::render_result_set_table(
+                &rs,
+                format,
+                &TableOptions::default(),
+            ));
         }
 
         if include_constraints && !constraints.is_empty() {
             output.push_str("\nConstraints\n");
             let rs = constraints_to_result_set(constraints);
-            output.push_str(&table::render_result_set_table(&rs, format, &TableOptions::default()));
+            output.push_str(&table::render_result_set_table(
+                &rs,
+                format,
+                &TableOptions::default(),
+            ));
         }
 
         if let Some(triggers) = triggers_rs {
             output.push_str("\nTriggers\n");
-            output.push_str(&table::render_result_set_table(triggers, format, &TableOptions::default()));
+            output.push_str(&table::render_result_set_table(
+                triggers,
+                format,
+                &TableOptions::default(),
+            ));
         }
     }
 
@@ -1203,7 +1372,11 @@ fn format_view_output(
         }
 
         output.push_str("Columns\n");
-        output.push_str(&table::render_result_set_table(columns_rs, format, &TableOptions::default()));
+        output.push_str(&table::render_result_set_table(
+            columns_rs,
+            format,
+            &TableOptions::default(),
+        ));
     }
 
     Ok(output)
@@ -1211,96 +1384,199 @@ fn format_view_output(
 
 fn indexes_to_result_set(indexes: &[IndexInfo]) -> ResultSet {
     let columns = vec![
-        Column { name: "name".to_string(), data_type: None },
-        Column { name: "type".to_string(), data_type: None },
-        Column { name: "unique".to_string(), data_type: None },
-        Column { name: "primary".to_string(), data_type: None },
-        Column { name: "keyColumns".to_string(), data_type: None },
-        Column { name: "includedColumns".to_string(), data_type: None },
+        Column {
+            name: "name".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "type".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "unique".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "primary".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "keyColumns".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "includedColumns".to_string(),
+            data_type: None,
+        },
     ];
 
-    let rows = indexes.iter().map(|idx| vec![
-        Value::Text(idx.name.clone()),
-        Value::Text(idx.index_type.clone()),
-        Value::Text(if idx.is_unique { "yes" } else { "no" }.to_string()),
-        Value::Text(if idx.is_primary { "yes" } else { "no" }.to_string()),
-        Value::Text(idx.key_columns.join(", ")),
-        Value::Text(idx.included_columns.join(", ")),
-    ]).collect();
+    let rows = indexes
+        .iter()
+        .map(|idx| {
+            vec![
+                Value::Text(idx.name.clone()),
+                Value::Text(idx.index_type.clone()),
+                Value::Text(if idx.is_unique { "yes" } else { "no" }.to_string()),
+                Value::Text(if idx.is_primary { "yes" } else { "no" }.to_string()),
+                Value::Text(idx.key_columns.join(", ")),
+                Value::Text(idx.included_columns.join(", ")),
+            ]
+        })
+        .collect();
 
     ResultSet { columns, rows }
 }
 
 fn fks_to_result_set(fks: &[ForeignKeyInfo]) -> ResultSet {
     let columns = vec![
-        Column { name: "name".to_string(), data_type: None },
-        Column { name: "direction".to_string(), data_type: None },
-        Column { name: "fromTable".to_string(), data_type: None },
-        Column { name: "columns".to_string(), data_type: None },
-        Column { name: "toTable".to_string(), data_type: None },
-        Column { name: "referencedColumns".to_string(), data_type: None },
-        Column { name: "updateRule".to_string(), data_type: None },
-        Column { name: "deleteRule".to_string(), data_type: None },
+        Column {
+            name: "name".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "direction".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "fromTable".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "columns".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "toTable".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "referencedColumns".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "updateRule".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "deleteRule".to_string(),
+            data_type: None,
+        },
     ];
 
-    let rows = fks.iter().map(|fk| vec![
-        Value::Text(fk.name.clone()),
-        Value::Text(fk.direction.clone()),
-        Value::Text(format!("{}.{}", fk.from_schema, fk.from_table)),
-        Value::Text(fk.columns.join(", ")),
-        Value::Text(format!("{}.{}", fk.to_schema, fk.to_table)),
-        Value::Text(fk.referenced_columns.join(", ")),
-        Value::Text(fk.update_rule.clone()),
-        Value::Text(fk.delete_rule.clone()),
-    ]).collect();
+    let rows = fks
+        .iter()
+        .map(|fk| {
+            vec![
+                Value::Text(fk.name.clone()),
+                Value::Text(fk.direction.clone()),
+                Value::Text(format!("{}.{}", fk.from_schema, fk.from_table)),
+                Value::Text(fk.columns.join(", ")),
+                Value::Text(format!("{}.{}", fk.to_schema, fk.to_table)),
+                Value::Text(fk.referenced_columns.join(", ")),
+                Value::Text(fk.update_rule.clone()),
+                Value::Text(fk.delete_rule.clone()),
+            ]
+        })
+        .collect();
 
     ResultSet { columns, rows }
 }
 
 fn constraints_to_result_set(constraints: &[ConstraintInfo]) -> ResultSet {
     let columns = vec![
-        Column { name: "name".to_string(), data_type: None },
-        Column { name: "type".to_string(), data_type: None },
-        Column { name: "columns".to_string(), data_type: None },
+        Column {
+            name: "name".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "type".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "columns".to_string(),
+            data_type: None,
+        },
     ];
 
-    let rows = constraints.iter().map(|c| vec![
-        Value::Text(c.name.clone()),
-        Value::Text(c.constraint_type.clone()),
-        Value::Text(c.columns.join(", ")),
-    ]).collect();
+    let rows = constraints
+        .iter()
+        .map(|c| {
+            vec![
+                Value::Text(c.name.clone()),
+                Value::Text(c.constraint_type.clone()),
+                Value::Text(c.columns.join(", ")),
+            ]
+        })
+        .collect();
 
     ResultSet { columns, rows }
 }
 
 fn format_params_result_set(params_rs: &ResultSet) -> ResultSet {
     let columns = vec![
-        Column { name: "name".to_string(), data_type: None },
-        Column { name: "dataType".to_string(), data_type: None },
-        Column { name: "maxLength".to_string(), data_type: None },
-        Column { name: "isOutput".to_string(), data_type: None },
+        Column {
+            name: "name".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "dataType".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "maxLength".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "isOutput".to_string(),
+            data_type: None,
+        },
     ];
 
-    let rows = params_rs.rows.iter().map(|row| vec![
-        Value::Text(value_to_string(row.first())),
-        Value::Text(value_to_string(row.get(1))),
-        row.get(2).cloned().unwrap_or(Value::Null),
-        Value::Text(if value_to_bool(row.get(5)) { "yes" } else { "no" }.to_string()),
-    ]).collect();
+    let rows = params_rs
+        .rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Text(value_to_string(row.first())),
+                Value::Text(value_to_string(row.get(1))),
+                row.get(2).cloned().unwrap_or(Value::Null),
+                Value::Text(
+                    if value_to_bool(row.get(5)) {
+                        "yes"
+                    } else {
+                        "no"
+                    }
+                    .to_string(),
+                ),
+            ]
+        })
+        .collect();
 
     ResultSet { columns, rows }
 }
 
 fn format_fn_params_result_set(params_rs: &ResultSet) -> ResultSet {
     let columns = vec![
-        Column { name: "name".to_string(), data_type: None },
-        Column { name: "dataType".to_string(), data_type: None },
+        Column {
+            name: "name".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "dataType".to_string(),
+            data_type: None,
+        },
     ];
 
-    let rows = params_rs.rows.iter().map(|row| vec![
-        Value::Text(value_to_string(row.first())),
-        Value::Text(value_to_string(row.get(1))),
-    ]).collect();
+    let rows = params_rs
+        .rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Text(value_to_string(row.first())),
+                Value::Text(value_to_string(row.get(1))),
+            ]
+        })
+        .collect();
 
     ResultSet { columns, rows }
 }
