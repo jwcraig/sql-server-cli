@@ -77,7 +77,7 @@ ORDER BY i.name, ic.key_ordinal, ic.index_column_id;
             let entry = grouped
                 .entry(index_name.clone())
                 .or_insert_with(|| IndexInfo {
-                    schema: value_to_string(row.get(0)),
+                    schema: value_to_string(row.first()),
                     name: index_name.clone(),
                     index_type: value_to_string(row.get(2)),
                     is_unique: value_to_bool(row.get(3)),

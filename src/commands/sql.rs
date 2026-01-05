@@ -76,8 +76,7 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     let max_rows = cmd
         .max_rows
         .unwrap_or(MAX_ROWS_DEFAULT)
-        .min(MAX_ROWS_MAX)
-        .max(1) as usize;
+        .clamp(1, MAX_ROWS_MAX) as usize;
 
     let (result_sets, batch_results, errors) = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;
@@ -115,7 +114,7 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
                     });
                     errors.push(message);
                     if !cmd.continue_on_error {
-                        return Err(err.into());
+                        return Err(err);
                     }
                 }
             }
@@ -134,7 +133,7 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         Some(csv::write_result_sets(
             path,
             &result_sets,
-            resolved.settings.output.csv.multi_result_naming.clone(),
+            resolved.settings.output.csv.multi_result_naming,
         )?)
     } else {
         None

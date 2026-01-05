@@ -51,7 +51,7 @@ fn resolve_target_path(path: Option<&PathBuf>) -> Result<PathBuf> {
         if path
             .extension()
             .and_then(|s| s.to_str())
-            .map_or(false, |ext| matches!(ext, "yaml" | "yml" | "json"))
+            .is_some_and(|ext| matches!(ext, "yaml" | "yml" | "json"))
         {
             return Ok(path.clone());
         }

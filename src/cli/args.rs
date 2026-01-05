@@ -826,7 +826,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         markdown: matches.get_flag("markdown"),
         pretty: matches.get_flag("pretty"),
     };
-    let verbose = matches.get_count("verbose") as u8;
+    let verbose = matches.get_count("verbose");
     let quiet = matches.get_flag("quiet");
 
     let command = match matches.subcommand() {

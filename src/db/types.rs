@@ -40,20 +40,11 @@ pub struct Column {
     pub data_type: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultSet {
     pub columns: Vec<Column>,
     pub rows: Vec<Vec<Value>>,
-}
-
-impl Default for ResultSet {
-    fn default() -> Self {
-        Self {
-            columns: Vec::new(),
-            rows: Vec::new(),
-        }
-    }
 }
 
 fn format_number(value: i64) -> String {

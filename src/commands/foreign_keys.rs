@@ -83,7 +83,7 @@ ORDER BY fk.name, fkc.constraint_column_id;
 
         let mut grouped: BTreeMap<String, ForeignKeyInfo> = BTreeMap::new();
         for row in result_set.rows {
-            let fk_name = value_to_string(row.get(0));
+            let fk_name = value_to_string(row.first());
             let parent_schema = value_to_string(row.get(1));
             let parent_table = value_to_string(row.get(2));
             let parent_column = value_to_string(row.get(3));

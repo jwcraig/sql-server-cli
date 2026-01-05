@@ -107,7 +107,7 @@ WHERE (@P1 IS NULL OR s.name = @P1)
             .iter()
             .any(|proc_name| proc_name.eq_ignore_ascii_case(&name));
         enriched_rows.push(vec![
-            row.get(0).cloned().unwrap_or(Value::Null),
+            row.first().cloned().unwrap_or(Value::Null),
             Value::Text(name),
             row.get(2).cloned().unwrap_or(Value::Null),
             Value::Text(if is_allowed { "yes" } else { "no" }.to_string()),

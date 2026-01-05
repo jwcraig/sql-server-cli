@@ -84,11 +84,8 @@ fn first_token(input: &str) -> Option<String> {
             token.push(ch);
         } else if !token.is_empty() {
             break;
-        } else if ch.is_whitespace() {
-            continue;
-        } else {
-            continue;
         }
+        // Skip whitespace and other characters until we find the first token
     }
     if token.is_empty() {
         None
@@ -102,7 +99,7 @@ fn extract_exec_target(input: &str) -> Option<String> {
     let mut chars = cleaned.chars().peekable();
     let mut seen_token = false;
 
-    while let Some(ch) = chars.next() {
+    for ch in chars.by_ref() {
         if ch.is_alphanumeric() {
             seen_token = true;
             while let Some(next) = chars.peek() {
@@ -121,7 +118,7 @@ fn extract_exec_target(input: &str) -> Option<String> {
     }
 
     let mut target = String::new();
-    while let Some(ch) = chars.next() {
+    for ch in chars.by_ref() {
         if ch.is_whitespace() {
             continue;
         }
@@ -136,7 +133,7 @@ fn extract_exec_target(input: &str) -> Option<String> {
         return None;
     }
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         if ch.is_whitespace() || ch == '(' || ch == ';' {
             break;
         }
@@ -162,17 +159,14 @@ fn normalize_proc_name(raw: &str) -> Option<String> {
 
 fn find_blocked_keyword(input: &str) -> Option<String> {
     let mut token = String::new();
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
+    for ch in input.chars() {
         if ch.is_alphanumeric() || ch == '_' {
             token.push(ch);
-        } else {
-            if !token.is_empty() {
-                if is_blocked(&token) {
-                    return Some(token.to_uppercase());
-                }
-                token.clear();
+        } else if !token.is_empty() {
+            if is_blocked(&token) {
+                return Some(token.to_uppercase());
             }
+            token.clear();
         }
     }
     if !token.is_empty() && is_blocked(&token) {

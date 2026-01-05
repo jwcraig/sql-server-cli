@@ -103,7 +103,7 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
             .unwrap_or(result_set.rows.len() as u64);
 
         let csv_paths = if let Some(path) = cmd.csv.as_ref() {
-            Some(csv::write_result_sets(path, &[result_set.clone()], resolved.settings.output.csv.multi_result_naming.clone())?)
+            Some(csv::write_result_sets(path, &[result_set.clone()], resolved.settings.output.csv.multi_result_naming)?)
         } else {
             None
         };
@@ -221,7 +221,7 @@ ORDER BY ORDINAL_POSITION;
     Ok(result_set
         .rows
         .iter()
-        .filter_map(|row| row.get(0))
+        .filter_map(|row| row.first())
         .map(|value| match value {
             crate::db::types::Value::Text(s) => s.clone(),
             _ => value.as_display(),

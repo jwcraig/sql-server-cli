@@ -239,6 +239,7 @@ WHERE ({} = 1 OR TABLE_TYPE = 'BASE TABLE')
 }
 
 /// Handle --describe mode: iterate through tables and describe each one
+#[allow(clippy::too_many_arguments)]
 fn run_describe_mode(
     args: &CliArgs,
     rows: &crate::db::types::ResultSet,

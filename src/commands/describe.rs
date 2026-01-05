@@ -548,7 +548,7 @@ ORDER BY p.parameter_id
     if matches!(format, OutputFormat::Json) {
         let params: Vec<_> = params_rs.rows.iter().map(|row| {
             json!({
-                "name": value_to_string(row.get(0)),
+                "name": value_to_string(row.first()),
                 "dataType": value_to_string(row.get(1)),
                 "maxLength": row.get(2).and_then(|v| match v { Value::Int(i) => Some(*i), _ => None }),
                 "isOutput": value_to_bool(row.get(5)),
@@ -615,7 +615,7 @@ WHERE o.name = @P1
     let meta_rs = result_sets.into_iter().next().unwrap_or_default();
 
     let (fn_type, return_type) = if let Some(row) = meta_rs.rows.first() {
-        (value_to_string(row.get(0)), value_to_string(row.get(1)))
+        (value_to_string(row.first()), value_to_string(row.get(1)))
     } else {
         return Err(anyhow!("Function '{}' not found", fn_name));
     };
@@ -653,7 +653,7 @@ ORDER BY p.parameter_id
     if matches!(format, OutputFormat::Json) {
         let params: Vec<_> = params_rs.rows.iter().map(|row| {
             json!({
-                "name": value_to_string(row.get(0)),
+                "name": value_to_string(row.first()),
                 "dataType": value_to_string(row.get(1)),
             })
         }).collect();
@@ -756,7 +756,7 @@ ORDER BY i.name, ic.key_ordinal, ic.index_column_id;
 
     let mut grouped: BTreeMap<String, IndexInfo> = BTreeMap::new();
     for row in result_set.rows {
-        let index_name = value_to_string(row.get(0));
+        let index_name = value_to_string(row.first());
         let entry = grouped.entry(index_name.clone()).or_insert_with(|| IndexInfo {
             name: index_name.clone(),
             index_type: value_to_string(row.get(1)),
@@ -816,7 +816,7 @@ ORDER BY fk.name, fkc.constraint_column_id;
 
     let mut grouped: BTreeMap<String, ForeignKeyInfo> = BTreeMap::new();
     for row in result_set.rows {
-        let fk_name = value_to_string(row.get(0));
+        let fk_name = value_to_string(row.first());
         let parent_schema = value_to_string(row.get(1));
         let parent_table = value_to_string(row.get(2));
         let parent_column = value_to_string(row.get(3));
@@ -878,7 +878,7 @@ ORDER BY tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;
 
     let mut grouped: BTreeMap<String, ConstraintInfo> = BTreeMap::new();
     for row in result_set.rows {
-        let name = value_to_string(row.get(0));
+        let name = value_to_string(row.first());
         let constraint_type = value_to_string(row.get(1));
         let column_name = value_to_string(row.get(2));
         let entry = grouped.entry(name.clone()).or_insert_with(|| ConstraintInfo {
@@ -966,7 +966,7 @@ ORDER BY c.column_id
     let mut column_defs: Vec<String> = Vec::new();
 
     for row in &result_set.rows {
-        let col_name = value_to_string(row.get(0));
+        let col_name = value_to_string(row.first());
         let data_type = value_to_string(row.get(1));
         let max_length = row.get(2).and_then(|v| match v {
             Value::Int(i) => Some(*i),
@@ -1088,6 +1088,7 @@ fn format_type_spec(data_type: &str, max_length: Option<i64>, precision: Option<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_table_output(
     table_name: &str,
     schema: &str,
@@ -1281,7 +1282,7 @@ fn format_params_result_set(params_rs: &ResultSet) -> ResultSet {
     ];
 
     let rows = params_rs.rows.iter().map(|row| vec![
-        Value::Text(value_to_string(row.get(0))),
+        Value::Text(value_to_string(row.first())),
         Value::Text(value_to_string(row.get(1))),
         row.get(2).cloned().unwrap_or(Value::Null),
         Value::Text(if value_to_bool(row.get(5)) { "yes" } else { "no" }.to_string()),
@@ -1297,7 +1298,7 @@ fn format_fn_params_result_set(params_rs: &ResultSet) -> ResultSet {
     ];
 
     let rows = params_rs.rows.iter().map(|row| vec![
-        Value::Text(value_to_string(row.get(0))),
+        Value::Text(value_to_string(row.first())),
         Value::Text(value_to_string(row.get(1))),
     ]).collect();
 

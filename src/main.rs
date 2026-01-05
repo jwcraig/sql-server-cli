@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use std::io::{self, IsTerminal, Write};
 
 use owo_colors::OwoColorize;
