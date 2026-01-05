@@ -99,6 +99,7 @@ sscli describe Users                      # DDL, columns, indexes, triggers
 sscli describe T_Users_Trig               # Trigger definition (auto-detected)
 sscli sql "SELECT TOP 5 * FROM Users"
 sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
+sscli update                              # Check for new releases (alias: sscli upgrade)
 ```
 
 ## Installation
@@ -150,11 +151,29 @@ cargo build --release
 ### Updating
 
 ```bash
+# Check if you're up to date (alias: `sscli upgrade`)
+sscli update
+
 # Homebrew
 brew upgrade sscli
 
 # Cargo
 cargo install sscli --force
+```
+
+### Automatic update notifications (optional)
+
+By default, sscli does **not** check for updates automatically.
+
+To enable lightweight update notifications (stderr, TTY-only, cached), create:
+
+- `~/.config/sscli/settings.json` (Linux/XDG default)
+- macOS often uses `~/Library/Application Support/sscli/settings.json` by default
+
+Example `settings.json`:
+
+```json
+{ "autoUpdate": true }
 ```
 
 ## Agent Integration

@@ -15,6 +15,7 @@ fn help_shows_core_commands_only() {
         "sql",
         "table-data",
         "columns",
+        "update",
         "init",
         "config",
     ] {

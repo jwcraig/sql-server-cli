@@ -8,3 +8,6 @@ pub mod db;
 pub mod error;
 pub mod output;
 pub mod safety;
+
+mod app_settings;
+mod update;

@@ -39,6 +39,7 @@ pub enum CommandKind {
     Sql(SqlArgs),
     TableData(TableDataArgs),
     Columns(ColumnsArgs),
+    Update(UpdateArgs),
     Indexes(IndexesArgs),
     ForeignKeys(ForeignKeysArgs),
     StoredProcs(StoredProcsArgs),
@@ -121,6 +122,9 @@ pub struct ColumnsArgs {
     pub limit: Option<u64>,
     pub offset: Option<u64>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UpdateArgs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexesArgs {
@@ -223,6 +227,7 @@ pub fn build_cli(show_all: bool) -> Command {
     cmd = cmd.subcommand(command_sql(show_all));
     cmd = cmd.subcommand(command_table_data(show_all));
     cmd = cmd.subcommand(command_columns(show_all));
+    cmd = cmd.subcommand(command_update(show_all));
     cmd = cmd.subcommand(command_init(show_all));
     cmd = cmd.subcommand(command_config(show_all));
 
@@ -660,6 +665,10 @@ fn command_columns(show_all: bool) -> Command {
     )
 }
 
+fn command_update(show_all: bool) -> Command {
+    command_core("update", "Check for sscli updates", &["upgrade"], show_all)
+}
+
 fn command_indexes(show_all: bool) -> Command {
     command_advanced("indexes", "Table index inspection", &[], show_all)
         .arg(Arg::new("table").long("table").value_name("name"))
@@ -907,6 +916,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             limit: sub_m.get_one::<u64>("limit").copied(),
             offset: sub_m.get_one::<u64>("offset").copied(),
         }),
+        Some(("update", _)) | Some(("upgrade", _)) => CommandKind::Update(UpdateArgs),
         Some(("indexes", sub_m)) => CommandKind::Indexes(IndexesArgs {
             table: sub_m.get_one::<String>("table").cloned(),
             schema: sub_m.get_one::<String>("schema").cloned(),

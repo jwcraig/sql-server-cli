@@ -19,13 +19,15 @@ mod status;
 mod stored_procs;
 mod table_data;
 mod tables;
+mod update;
+mod update_notice;
 
 use anyhow::Result;
 
 use crate::cli::{CliArgs, CommandKind};
 
 pub fn dispatch(args: &CliArgs) -> Result<()> {
-    match &args.command {
+    let result = match &args.command {
         CommandKind::Help { all, command } => help::run(*all, command.as_deref()),
         CommandKind::Status(cmd) => status::run(args, cmd),
         CommandKind::Databases(cmd) => databases::run(args, cmd),
@@ -34,6 +36,7 @@ pub fn dispatch(args: &CliArgs) -> Result<()> {
         CommandKind::Sql(cmd) => sql::run(args, cmd),
         CommandKind::TableData(cmd) => table_data::run(args, cmd),
         CommandKind::Columns(cmd) => columns::run(args, cmd),
+        CommandKind::Update(cmd) => update::run(args, cmd),
         CommandKind::Indexes(cmd) => indexes::run(args, cmd),
         CommandKind::ForeignKeys(cmd) => foreign_keys::run(args, cmd),
         CommandKind::StoredProcs(cmd) => stored_procs::run(args, cmd),
@@ -44,5 +47,11 @@ pub fn dispatch(args: &CliArgs) -> Result<()> {
         CommandKind::Config(_) => config::run(args),
         CommandKind::Completions(cmd) => completions::run(args, cmd),
         CommandKind::Integrations(cmd) => integrations::run(args, cmd),
+    };
+
+    if result.is_ok() {
+        update_notice::maybe_emit(args);
     }
+
+    result
 }
