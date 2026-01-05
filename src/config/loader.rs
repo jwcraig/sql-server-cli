@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
-use super::env::{parse_bool, Env};
+use super::env::{Env, parse_bool};
 use super::schema::{
     ConfigFile, CsvMultiResultNaming, JsonContractVersion, OutputFormat, OutputSettings, Profile,
     Settings,

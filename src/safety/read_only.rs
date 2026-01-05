@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashSet;
 
 const BLOCKED_KEYWORDS: &[&str] = &[
@@ -87,11 +87,7 @@ fn first_token(input: &str) -> Option<String> {
         }
         // Skip whitespace and other characters until we find the first token
     }
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
+    if token.is_empty() { None } else { Some(token) }
 }
 
 fn extract_exec_target(input: &str) -> Option<String> {

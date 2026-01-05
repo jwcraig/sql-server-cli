@@ -10,7 +10,7 @@ use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
 use crate::db::types::Value;
-use crate::output::{json as json_out, table, TableOptions};
+use crate::output::{TableOptions, json as json_out, table};
 
 pub fn run(args: &CliArgs, _cmd: &StatusArgs) -> Result<()> {
     let resolved = common::load_config(args)?;

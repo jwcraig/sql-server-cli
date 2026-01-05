@@ -1,4 +1,4 @@
-use comfy_table::{presets, ContentArrangement, Table};
+use comfy_table::{ContentArrangement, Table, presets};
 
 use crate::config::OutputFormat;
 use crate::db::types::{ResultSet, Value};

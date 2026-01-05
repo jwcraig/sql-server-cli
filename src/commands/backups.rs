@@ -7,7 +7,7 @@ use crate::commands::common;
 use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
-use crate::output::{json as json_out, table, TableOptions};
+use crate::output::{TableOptions, json as json_out, table};
 
 const LIMIT_DEFAULT: u64 = 20;
 const LIMIT_MAX: u64 = 200;

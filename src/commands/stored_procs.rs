@@ -9,7 +9,7 @@ use crate::db::client;
 use crate::db::executor;
 use crate::db::types::{Column, ResultSet, Value};
 use crate::error::{AppError, ErrorKind};
-use crate::output::{json as json_out, table, TableOptions};
+use crate::output::{TableOptions, json as json_out, table};
 use crate::safety;
 
 const LIMIT_DEFAULT: u64 = 10;

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde_json::json;
 use tiberius::Query;
 
@@ -8,7 +8,7 @@ use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
 use crate::error::{AppError, ErrorKind};
-use crate::output::{csv, json as json_out, table, TableOptions};
+use crate::output::{TableOptions, csv, json as json_out, table};
 
 const LIMIT_DEFAULT: u64 = 25;
 const LIMIT_MAX: u64 = 500;

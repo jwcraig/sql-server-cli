@@ -1,10 +1,10 @@
 mod args;
 
 pub use args::{
-    build_cli, BackupsArgs, CliArgs, ColumnsArgs, CommandKind, CompletionsArgs, ConfigArgs,
-    DatabasesArgs, DescribeArgs, ForeignKeysArgs, IndexesArgs, InitArgs, IntegrationCommand,
+    BackupsArgs, CliArgs, ColumnsArgs, CommandKind, CompletionsArgs, ConfigArgs, DatabasesArgs,
+    DescribeArgs, ForeignKeysArgs, IndexesArgs, InitArgs, IntegrationCommand,
     IntegrationInstallArgs, IntegrationsArgs, OutputFlags, QueryStatsArgs, SessionsArgs, SqlArgs,
-    StatusArgs, StoredProcsArgs, TableDataArgs, TablesArgs,
+    StatusArgs, StoredProcsArgs, TableDataArgs, TablesArgs, build_cli,
 };
 
 pub fn parse() -> CliArgs {

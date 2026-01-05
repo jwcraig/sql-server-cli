@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::collections::BTreeMap;
 use tiberius::Query;
@@ -9,7 +9,7 @@ use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
 use crate::db::types::{Column, ResultSet, Value};
-use crate::output::{json as json_out, table, TableOptions};
+use crate::output::{TableOptions, json as json_out, table};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ObjectType {
@@ -452,11 +452,7 @@ async fn describe_table(
     };
     let triggers_rs = if include_triggers {
         let t = fetch_triggers(client, table_name, schema).await?;
-        if t.rows.is_empty() {
-            None
-        } else {
-            Some(t)
-        }
+        if t.rows.is_empty() { None } else { Some(t) }
     } else {
         None
     };

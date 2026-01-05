@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::Instant;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde_json::json;
 use tiberius::Query;
 
@@ -12,7 +12,7 @@ use crate::db::client;
 use crate::db::executor;
 use crate::db::types::ResultSet;
 use crate::error::{AppError, ErrorKind};
-use crate::output::{csv, json as json_out, table, TableOptions};
+use crate::output::{TableOptions, csv, json as json_out, table};
 use crate::safety;
 
 const MAX_ROWS_DEFAULT: u64 = 200;

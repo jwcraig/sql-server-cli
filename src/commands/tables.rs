@@ -9,7 +9,7 @@ use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
 use crate::db::types::Value;
-use crate::output::{json as json_out, table, TableOptions};
+use crate::output::{TableOptions, json as json_out, table};
 
 const LIMIT_DEFAULT: u64 = 200;
 const LIMIT_MAX: u64 = 500;
@@ -417,12 +417,14 @@ fn run_describe_mode(
         });
         // Include errors if any occurred
         if !errors.is_empty() {
-            payload["errors"] = json!(errors
-                .iter()
-                .map(|(schema, name, err)| {
-                    json!({"schema": schema, "name": name, "error": err})
-                })
-                .collect::<Vec<_>>());
+            payload["errors"] = json!(
+                errors
+                    .iter()
+                    .map(|(schema, name, err)| {
+                        json!({"schema": schema, "name": name, "error": err})
+                    })
+                    .collect::<Vec<_>>()
+            );
         }
         let body = json_out::emit_json_value(&payload, json_pretty)?;
         println!("{}", body);

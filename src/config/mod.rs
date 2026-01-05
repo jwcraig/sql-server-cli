@@ -2,10 +2,10 @@ mod env;
 mod loader;
 mod schema;
 
-pub use env::{parse_bool, Env};
+pub use env::{Env, parse_bool};
 pub use loader::{
-    load_config, CliOverrides, ConnectionSettings, LoadOptions, OutputSettingsResolved,
-    ResolvedConfig, SettingsResolved,
+    CliOverrides, ConnectionSettings, LoadOptions, OutputSettingsResolved, ResolvedConfig,
+    SettingsResolved, load_config,
 };
 pub use schema::{
     ConfigFile, CsvMultiResultNaming, JsonContractVersion, JsonSettings, OutputFormat,

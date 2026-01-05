@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::cli::CliArgs;
 use crate::commands::common;
 use crate::config;
-use crate::output::{self, json, table, TableOptions};
+use crate::output::{self, TableOptions, json, table};
 
 pub fn run(args: &CliArgs) -> Result<()> {
     let resolved = common::load_config(args)?;

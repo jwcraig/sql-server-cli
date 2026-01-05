@@ -1,9 +1,9 @@
 use std::io;
 
-use anyhow::{anyhow, Result};
-use clap_complete::{generate, Shell};
+use anyhow::{Result, anyhow};
+use clap_complete::{Shell, generate};
 
-use crate::cli::{build_cli, CliArgs, CompletionsArgs};
+use crate::cli::{CliArgs, CompletionsArgs, build_cli};
 
 pub fn run(_args: &CliArgs, cmd: &CompletionsArgs) -> Result<()> {
     let shell_name = cmd
