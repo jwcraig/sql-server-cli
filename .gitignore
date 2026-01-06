@@ -4,3 +4,4 @@ tests/test-run-*.log
 # Local SQL Server config (may contain credentials)
 .sql-server/
 .sqlserver/
+.private/
