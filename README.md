@@ -209,7 +209,7 @@ sscli supports three ways to configure a connection (highest priority wins):
 
 ```bash
 # 1) CLI flags (one-off / scripts)
-sscli status --server localhost --database master --user sa --password '...'
+sscli status --server localhost --database master --user sa --password '...' # alias: --host
 
 # 2) Environment variables (CI-friendly)
 export SQL_SERVER=localhost SQL_DATABASE=master SQL_USER=sa SQL_PASSWORD='...'
@@ -316,6 +316,8 @@ Environment variables override values from the config file.
 | `query-stats`  | Top cached queries by resource usage  |
 | `backups`      | Recent backup history                 |
 | `integrations` | Install agent skills/extensions       |
+
+Note: `sscli sessions` filters by client host name using `--client-host`. `--host` is reserved as an alias for `--server`.
 
 ## Output Formats
 
