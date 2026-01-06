@@ -17,3 +17,18 @@ fn config_command_emits_json() {
     assert_eq!(value["connection"]["user"], "env-user");
     assert_eq!(value["connection"]["password"], "env-pass");
 }
+
+#[test]
+fn config_command_accepts_host_alias() {
+    let mut cmd = cargo_bin_cmd!("sscli");
+    cmd.args(["config", "--json", "--host", "cli-host"])
+        .env("SQL_SERVER", "env-host")
+        .env("SQL_DATABASE", "env-db")
+        .env("SQL_USER", "env-user")
+        .env("SQL_PASSWORD", "env-pass");
+
+    let output = cmd.assert().success().get_output().stdout.clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+
+    assert_eq!(value["connection"]["server"], "cli-host");
+}

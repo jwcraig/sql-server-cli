@@ -275,6 +275,7 @@ fn add_global_args(cmd: Command) -> Command {
     .arg(
         Arg::new("server")
             .long("server")
+            .visible_alias("host")
             .value_name("HOST")
             .global(true)
             .help("SQL Server hostname"),
@@ -728,7 +729,12 @@ fn command_sessions(show_all: bool) -> Command {
     command_advanced("sessions", "Active sessions", &["connections"], show_all)
         .arg(Arg::new("database").long("database").value_name("name"))
         .arg(Arg::new("login").long("login").value_name("name"))
-        .arg(Arg::new("host").long("host").value_name("name"))
+        .arg(
+            Arg::new("host")
+                .long("client-host")
+                .value_name("name")
+                .help("Filter sessions by client host name (sys.dm_exec_sessions.host_name)"),
+        )
         .arg(Arg::new("status").long("status").value_name("state"))
         .arg(
             Arg::new("limit")
