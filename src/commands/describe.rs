@@ -616,9 +616,7 @@ SELECT
     p.max_length,
     p.precision,
     p.scale,
-    p.is_output,
-    p.has_default_value,
-    p.default_value
+    p.is_output
 FROM sys.parameters p
 INNER JOIN sys.objects o ON p.object_id = o.object_id
 INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
