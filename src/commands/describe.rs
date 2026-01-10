@@ -118,15 +118,17 @@ pub async fn describe_table_async(
 }
 
 pub fn run(args: &CliArgs, cmd: &DescribeArgs) -> Result<()> {
-    let object_name = cmd
+    let raw_object = cmd
         .object
         .as_deref()
         .ok_or_else(|| anyhow!("Missing object name. Usage: sscli describe <object>"))?;
 
+    let (object_name, parsed_schema) = normalize_object_input(raw_object);
+
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
     let json_pretty = common::json_pretty(&resolved);
-    let schema = cmd.schema.clone();
+    let schema = cmd.schema.clone().or(parsed_schema);
 
     // If user specified a type, use it; otherwise auto-detect
     let forced_type = cmd
@@ -138,7 +140,7 @@ pub fn run(args: &CliArgs, cmd: &DescribeArgs) -> Result<()> {
         let mut client = client::connect(&resolved.connection).await?;
         describe_object(
             &mut client,
-            object_name,
+            &object_name,
             schema.as_deref(),
             forced_type,
             cmd,
@@ -153,6 +155,16 @@ pub fn run(args: &CliArgs, cmd: &DescribeArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Accepts inputs like "web.table", "[web].[table]", or "table" and returns (object, schema).
+fn normalize_object_input(input: &str) -> (String, Option<String>) {
+    let cleaned = input.replace(['[', ']'], "");
+    if let Some((schema, object)) = cleaned.split_once('.') {
+        (object.to_string(), Some(schema.to_string()))
+    } else {
+        (cleaned.to_string(), None)
+    }
 }
 
 async fn describe_object(
