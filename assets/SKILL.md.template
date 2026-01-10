@@ -25,3 +25,31 @@ sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
 
 - `sscli sql` enforces read-only SQL (SELECT/CTE + allowlist).
 - To run write queries, use `--allow-write` and confirm intent.
+
+## Compare (schema drift)
+
+Use `compare` to spot differences between environments. It is read-only and safe.
+
+Examples:
+
+```bash
+# Summary table across modules/tables/indexes/constraints
+sscli compare --target prod --summary   # 'prod' is a profile name from .sql-server/config.*
+
+# Object diff (unified) ignoring whitespace
+sscli compare --target prod --object dbo.MyProc --ignore-whitespace   # prod is a profile name
+
+# Apply script to stdout (align target to source), include drops
+sscli compare --target prod --apply-script - --include-drops
+
+# Use explicit connections instead of profiles
+sscli compare --source-connection "Server=dev,1433;Database=app;User ID=sa;Password=..." \
+              --target-connection "sqlserver://user:pass@prod:1433/app" \
+              --summary
+```
+
+Flags worth knowing:
+- `--schema/--schemas` limit to specific schemas
+- `--strip-comments` remove comments before diffing
+- `--compact` restore the terse summary lists (default is tabular)
+- `--apply-script [path|-]` writes `db-apply-diff-YYYYMMDD-HHMMSS.sql` by default

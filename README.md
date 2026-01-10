@@ -307,15 +307,16 @@ Environment variables override values from the config file when no explicit `--p
 
 **Advanced** (shown in `help --all`):
 
-| Command        | Purpose                               |
-| -------------- | ------------------------------------- |
-| `indexes`      | Index details with usage stats        |
-| `foreign-keys` | Table relationships                   |
-| `stored-procs` | List and execute read-only procedures |
-| `sessions`     | Active database sessions              |
-| `query-stats`  | Top cached queries by resource usage  |
-| `backups`      | Recent backup history                 |
-| `integrations` | Install agent skills/extensions       |
+| Command        | Purpose                                        |
+| -------------- | ---------------------------------------------- |
+| `indexes`      | Index details with usage stats                 |
+| `foreign-keys` | Table relationships                            |
+| `stored-procs` | List and execute read-only procedures          |
+| `sessions`     | Active database sessions                       |
+| `query-stats`  | Top cached queries by resource usage           |
+| `backups`      | Recent backup history                          |
+| `compare`      | Schema drift detection between two connections |
+| `integrations` | Install agent skills/extensions                |
 
 Note: `sscli sessions` filters by client host name using `--client-host`. `--host` is reserved as an alias for `--server`.
 
@@ -351,12 +352,56 @@ Each command returns a stable top-level object:
 | `describe`   | `{ object: {schema, name, type}, columns, ddl?, indexes?, triggers?, foreignKeys?, constraints? }` |
 | `table-data` | `{ table, columns, rows, total, offset, limit, hasMore, nextOffset }`                              |
 | `sql`        | `{ success, batches, resultSets, csvPaths? }`                                                      |
+| `compare`    | `{ modules, indexes, constraints, tables }` when `--summary`; `{ source, target }` snapshots with full metadata when `--json` without `--summary` |
 
 Errors (stderr):
 
 ```json
 { "error": { "message": "...", "kind": "Config|Connection|Query|Internal" } }
 ```
+
+## compare (schema drift)
+
+Detects drift between two profiles or explicit connection strings.
+
+Synopsis:
+
+```
+sscli compare --target <profile> [--source <profile>] [--schema web --schema dbo] \
+  [--summary|--json] [--ignore-whitespace] [--strip-comments] \
+  [--object dbo.ProcName] [--apply-script [path|-]] [--include-drops]
+```
+
+- `--target/--right` (required): profile to treat as the environment you want to align.
+- `--source/--left`: reference profile (defaults to global `--profile` or config default).
+- `--source-connection/--left-connection`, `--target-connection/--right-connection`: override profile with a connection string (URL or ADO-style `Server=...;Database=...`).
+- `--schema/--schemas`: limit to specific schemas (repeatable or comma-separated).
+- `--object`: emit unified diff for a single module (proc/view/function/trigger).
+- `--ignore-whitespace`, `--strip-comments`: normalize noise before diffing definitions.
+- `--summary`: compact drift counts; `--pretty` renders text; `--json` renders JSON.
+- `--apply-script [path|-]`: generate SQL to align target to source; default path `db-apply-diff-YYYYMMDD-HHMMSS.sql` in cwd; use `-` for stdout.
+- `--include-drops`: include DROP statements (disabled by default).
+- Profiles are the names in your `.sql-server/config.*` (e.g., `dev`, `stage`, `prod`). `--source/--target` expect those names.
+
+Examples:
+
+```bash
+# Summary with profile names
+sscli compare --target prod --summary
+
+# Object diff ignoring whitespace
+sscli compare --target prod --object dbo.MyProc --ignore-whitespace
+
+# Apply script to stdout
+sscli compare --target prod --apply-script - --include-drops
+
+# Using explicit connection strings instead of profiles
+sscli compare --source-connection "Server=dev,1433;Database=app;User ID=sa;Password=..." \
+              --target-connection "sqlserver://user:pass@prod:1433/app" \
+              --summary
+```
+
+Exit codes: `0` = no drift, `3` = drift detected (summary/object/apply modes), `1` = error.
 
 ## Testing
 

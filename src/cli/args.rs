@@ -46,6 +46,7 @@ pub enum CommandKind {
     Sessions(SessionsArgs),
     QueryStats(QueryStatsArgs),
     Backups(BackupsArgs),
+    Compare(CompareArgs),
     Init(InitArgs),
     Config(ConfigArgs),
     Completions(CompletionsArgs),
@@ -175,6 +176,25 @@ pub struct BackupsArgs {
     pub limit: Option<u64>,
 }
 
+/// Arguments for schema drift comparison between two connections.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompareArgs {
+    pub source: Option<String>,
+    pub target: String,
+    pub source_connection: Option<String>,
+    pub target_connection: Option<String>,
+    pub schemas: Option<Vec<String>>,
+    pub object: Option<String>,
+    pub summary: bool,
+    pub pretty: bool,
+    pub ignore_whitespace: bool,
+    pub strip_comments: bool,
+    pub apply_script: bool,
+    pub apply_path: Option<String>,
+    pub include_drops: bool,
+    pub compact: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitArgs {
     pub path: Option<PathBuf>,
@@ -238,6 +258,7 @@ pub fn build_cli(show_all: bool) -> Command {
     cmd = cmd.subcommand(command_sessions(show_all));
     cmd = cmd.subcommand(command_query_stats(show_all));
     cmd = cmd.subcommand(command_backups(show_all));
+    cmd = cmd.subcommand(command_compare(show_all));
     cmd = cmd.subcommand(command_integrations(show_all));
 
     cmd
@@ -779,6 +800,104 @@ fn command_backups(show_all: bool) -> Command {
     )
 }
 
+fn command_compare(show_all: bool) -> Command {
+    command_advanced(
+        "compare",
+        "Compare two profiles/databases for schema drift",
+        &["diff", "drift"],
+        show_all,
+    )
+    .arg(
+        Arg::new("source")
+            .long("source")
+            .visible_alias("left")
+            .value_name("PROFILE")
+            .help("Source/reference profile (defaults to global --profile/default profile)"),
+    )
+    .arg(
+        Arg::new("source-connection")
+            .long("source-connection")
+            .visible_alias("left-connection")
+            .value_name("CONN")
+            .help("Source connection string (overrides profile)"),
+    )
+    .arg(
+        Arg::new("target")
+            .long("target")
+            .visible_alias("right")
+            .value_name("PROFILE")
+            .required(true)
+            .help("Target profile to compare against source"),
+    )
+    .arg(
+        Arg::new("target-connection")
+            .long("target-connection")
+            .visible_alias("right-connection")
+            .value_name("CONN")
+            .help("Target connection string (overrides profile)"),
+    )
+    .arg(
+        Arg::new("schema")
+            .long("schema")
+            .visible_alias("schemas")
+            .value_name("name")
+            .action(ArgAction::Append)
+            .use_value_delimiter(true)
+            .value_delimiter(',')
+            .help("Schemas to include (repeat or comma-separated)"),
+    )
+    .arg(
+        Arg::new("object")
+            .long("object")
+            .value_name("schema.name|name")
+            .help("Focus on a single module; emits unified diff"),
+    )
+    .arg(
+        Arg::new("summary")
+            .long("summary")
+            .action(ArgAction::SetTrue)
+            .help("Emit summary instead of full snapshot"),
+    )
+    .arg(
+        Arg::new("pretty")
+            .long("pretty")
+            .action(ArgAction::SetTrue)
+            .help("Pretty text summary (with --summary)"),
+    )
+    .arg(
+        Arg::new("ignore-whitespace")
+            .long("ignore-whitespace")
+            .action(ArgAction::SetTrue)
+            .help("Normalize whitespace when comparing definitions"),
+    )
+    .arg(
+        Arg::new("strip-comments")
+            .long("strip-comments")
+            .action(ArgAction::SetTrue)
+            .help("Strip SQL comments before comparing definitions"),
+    )
+    .arg(
+        Arg::new("apply-script")
+            .long("apply-script")
+            .value_name("path")
+            .num_args(0..=1)
+            .default_missing_value("AUTO")
+            .help("Generate SQL to align target to source (use '-' for stdout; default path auto-generated)"),
+    )
+    .arg(
+        Arg::new("include-drops")
+            .long("include-drops")
+            .action(ArgAction::SetTrue)
+            .help("Include DROP statements in apply script"),
+    )
+    .arg(
+        Arg::new("compact")
+            .long("compact")
+            .action(ArgAction::SetTrue)
+            .help("Use compact summary format (old behavior)"),
+    )
+}
+
 fn command_init(show_all: bool) -> Command {
     command_core("init", "Create config file", &[], show_all)
         .arg(
@@ -959,6 +1078,27 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             since: sub_m.get_one::<u64>("since").copied(),
             backup_type: sub_m.get_one::<String>("type").cloned(),
             limit: sub_m.get_one::<u64>("limit").copied(),
+        }),
+        Some(("compare", sub_m)) => CommandKind::Compare(CompareArgs {
+            source: sub_m.get_one::<String>("source").cloned(),
+            target: sub_m
+                .get_one::<String>("target")
+                .cloned()
+                .expect("clap enforces required target"),
+            source_connection: sub_m.get_one::<String>("source-connection").cloned(),
+            target_connection: sub_m.get_one::<String>("target-connection").cloned(),
+            schemas: sub_m
+                .get_many::<String>("schema")
+                .map(|values| values.map(|v| v.to_string()).collect()),
+            object: sub_m.get_one::<String>("object").cloned(),
+            summary: sub_m.get_flag("summary"),
+            pretty: sub_m.get_flag("pretty"),
+            ignore_whitespace: sub_m.get_flag("ignore-whitespace"),
+            strip_comments: sub_m.get_flag("strip-comments"),
+            apply_script: sub_m.contains_id("apply-script"),
+            apply_path: sub_m.get_one::<String>("apply-script").cloned(),
+            include_drops: sub_m.get_flag("include-drops"),
+            compact: sub_m.get_flag("compact"),
         }),
         Some(("init", sub_m)) => CommandKind::Init(InitArgs {
             path: sub_m.get_one::<String>("path").map(PathBuf::from),

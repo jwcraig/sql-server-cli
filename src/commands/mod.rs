@@ -1,6 +1,7 @@
 mod backups;
 mod columns;
 mod common;
+mod compare;
 mod completions;
 mod config;
 mod databases;
@@ -43,6 +44,7 @@ pub fn dispatch(args: &CliArgs) -> Result<()> {
         CommandKind::Sessions(cmd) => sessions::run(args, cmd),
         CommandKind::QueryStats(cmd) => query_stats::run(args, cmd),
         CommandKind::Backups(cmd) => backups::run(args, cmd),
+        CommandKind::Compare(cmd) => compare::run(args, cmd),
         CommandKind::Init(cmd) => init::run(args, cmd),
         CommandKind::Config(_) => config::run(args),
         CommandKind::Completions(cmd) => completions::run(args, cmd),

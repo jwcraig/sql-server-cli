@@ -31,6 +31,7 @@ fn help_shows_core_commands_only() {
         "indexes",
         "stored-procs",
         "completions",
+        "compare",
     ] {
         assert!(!stdout.contains(name), "advanced command leaked: {}", name);
     }
@@ -52,6 +53,7 @@ fn help_all_shows_advanced_commands() {
         "indexes",
         "stored-procs",
         "completions",
+        "compare",
     ] {
         assert!(stdout.contains(name), "missing advanced command: {}", name);
     }
