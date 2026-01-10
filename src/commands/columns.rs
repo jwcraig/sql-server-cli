@@ -22,8 +22,14 @@ pub fn run(args: &CliArgs, cmd: &ColumnsArgs) -> Result<()> {
     let include_views = cmd.include_views;
 
     let like = cmd.like.clone();
-    let table_filter = cmd.table.clone();
-    let schema = cmd.schema.clone();
+    let (table_filter, schema_from_name) = match cmd.table.as_deref() {
+        Some(t) => {
+            let (name, schema_opt) = common::normalize_object_input(t);
+            (Some(name), schema_opt)
+        }
+        None => (None, None),
+    };
+    let schema = cmd.schema.clone().or(schema_from_name);
 
     let (rows, total) = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;

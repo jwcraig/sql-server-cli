@@ -31,8 +31,14 @@ fn list_procs(args: &CliArgs, cmd: &StoredProcsArgs) -> Result<()> {
     let offset = common::parse_offset(cmd.offset);
 
     let include_system = cmd.include_system;
-    let schema = cmd.schema.clone();
-    let name = cmd.name.clone();
+    let (name, schema_from_name) = match cmd.name.as_deref() {
+        Some(n) => {
+            let (name, schema_opt) = common::normalize_object_input(n);
+            (Some(name), schema_opt)
+        }
+        None => (None, None),
+    };
+    let schema = cmd.schema.clone().or(schema_from_name);
 
     let (rows, total) = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;

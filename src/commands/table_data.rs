@@ -14,15 +14,20 @@ const LIMIT_DEFAULT: u64 = 25;
 const LIMIT_MAX: u64 = 500;
 
 pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
-    let table_name = cmd
+    let table_raw = cmd
         .table
         .as_deref()
         .ok_or_else(|| anyhow!("Missing required --table"))?;
+    let (table_name, schema_from_name) = common::normalize_object_input(table_raw);
 
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
 
-    let (schema, table_name) = resolve_schema_table(cmd.schema.as_deref(), table_name, &resolved);
+    let schema_hint = cmd
+        .schema
+        .as_deref()
+        .or_else(|| schema_from_name.as_deref());
+    let (schema, table_name) = resolve_schema_table(schema_hint, &table_name, &resolved);
 
     let limit = common::parse_limit(cmd.limit, LIMIT_DEFAULT, LIMIT_MAX);
     let offset = common::parse_offset(cmd.offset);

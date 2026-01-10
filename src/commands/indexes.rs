@@ -25,15 +25,17 @@ struct IndexInfo {
 }
 
 pub fn run(args: &CliArgs, cmd: &IndexesArgs) -> Result<()> {
-    let table_name = cmd
+    let table_raw = cmd
         .table
         .as_deref()
         .ok_or_else(|| anyhow!("Missing required --table"))?;
+    let (table_name, schema_from_name) = common::normalize_object_input(table_raw);
 
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
-    let schema = cmd.schema.clone();
+    let schema = cmd.schema.clone().or(schema_from_name);
 
+    let table_name_param = table_name.clone();
     let indexes = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;
         let sql = r#"
@@ -66,7 +68,7 @@ ORDER BY i.name, ic.key_ordinal, ic.index_column_id;
 "#;
 
         let mut query = Query::new(sql);
-        query.bind(table_name);
+        query.bind(table_name_param.as_str());
         query.bind(schema.as_deref());
         let result_sets = executor::run_query(query, &mut client).await?;
         let result_set = result_sets.into_iter().next().unwrap_or_default();

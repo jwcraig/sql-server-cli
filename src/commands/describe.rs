@@ -123,7 +123,7 @@ pub fn run(args: &CliArgs, cmd: &DescribeArgs) -> Result<()> {
         .as_deref()
         .ok_or_else(|| anyhow!("Missing object name. Usage: sscli describe <object>"))?;
 
-    let (object_name, parsed_schema) = normalize_object_input(raw_object);
+    let (object_name, parsed_schema) = common::normalize_object_input(raw_object);
 
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
@@ -155,16 +155,6 @@ pub fn run(args: &CliArgs, cmd: &DescribeArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Accepts inputs like "web.table", "[web].[table]", or "table" and returns (object, schema).
-fn normalize_object_input(input: &str) -> (String, Option<String>) {
-    let cleaned = input.replace(['[', ']'], "");
-    if let Some((schema, object)) = cleaned.split_once('.') {
-        (object.to_string(), Some(schema.to_string()))
-    } else {
-        (cleaned.to_string(), None)
-    }
 }
 
 async fn describe_object(

@@ -26,10 +26,11 @@ struct ForeignKeyInfo {
 }
 
 pub fn run(args: &CliArgs, cmd: &ForeignKeysArgs) -> Result<()> {
-    let table_name = cmd
+    let table_raw = cmd
         .table
         .as_deref()
         .ok_or_else(|| anyhow!("Missing required --table"))?;
+    let (table_name, schema_from_name) = common::normalize_object_input(table_raw);
     let direction = cmd
         .direction
         .clone()
@@ -41,8 +42,9 @@ pub fn run(args: &CliArgs, cmd: &ForeignKeysArgs) -> Result<()> {
 
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
-    let schema = cmd.schema.clone();
+    let schema = cmd.schema.clone().or(schema_from_name);
 
+    let table_name_param = table_name.clone();
     let fks = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;
         let sql = r#"
@@ -74,7 +76,7 @@ ORDER BY fk.name, fkc.constraint_column_id;
 "#;
 
         let mut query = Query::new(sql);
-        query.bind(table_name);
+        query.bind(table_name_param.as_str());
         query.bind(schema.as_deref());
         query.bind(if direction == "outbound" || direction == "both" { 1i32 } else { 0i32 });
         query.bind(if direction == "inbound" || direction == "both" { 1i32 } else { 0i32 });
@@ -93,7 +95,7 @@ ORDER BY fk.name, fkc.constraint_column_id;
             let update_rule = value_to_string(row.get(7));
             let delete_rule = value_to_string(row.get(8));
 
-            let is_outbound = parent_table.eq_ignore_ascii_case(table_name);
+            let is_outbound = parent_table.eq_ignore_ascii_case(table_name_param.as_str());
             let entry = grouped.entry(fk_name.clone()).or_insert_with(|| ForeignKeyInfo {
                 name: fk_name.clone(),
                 direction: if is_outbound { "outbound".to_string() } else { "inbound".to_string() },

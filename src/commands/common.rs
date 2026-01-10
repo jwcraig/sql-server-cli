@@ -52,3 +52,41 @@ pub fn parse_limit(value: Option<u64>, default: u64, max: u64) -> u64 {
 pub fn parse_offset(value: Option<u64>) -> u64 {
     value.unwrap_or(0)
 }
+
+/// Normalize object identifiers supplied via CLI.
+/// Accepts forms like `[schema].[name]`, `schema.name`, or just `name`.
+/// Returns (object_name, schema_opt).
+pub fn normalize_object_input(input: &str) -> (String, Option<String>) {
+    let cleaned = input.replace(['[', ']'], "");
+    if let Some((schema, object)) = cleaned.split_once('.') {
+        (object.to_string(), Some(schema.to_string()))
+    } else {
+        (cleaned.to_string(), None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_object_input;
+
+    #[test]
+    fn strips_brackets_and_extracts_schema() {
+        let (name, schema) = normalize_object_input("[web].[table]");
+        assert_eq!(name, "table");
+        assert_eq!(schema.as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn handles_dotted_without_brackets() {
+        let (name, schema) = normalize_object_input("web.table");
+        assert_eq!(name, "table");
+        assert_eq!(schema.as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn returns_name_only_when_no_schema() {
+        let (name, schema) = normalize_object_input("table");
+        assert_eq!(name, "table");
+        assert!(schema.is_none());
+    }
+}
