@@ -1601,7 +1601,7 @@ dependencies = [
 
 [[package]]
 name = "sscli"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "assert_cmd",

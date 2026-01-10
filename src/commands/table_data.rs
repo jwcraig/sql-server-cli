@@ -23,10 +23,7 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
 
-    let schema_hint = cmd
-        .schema
-        .as_deref()
-        .or_else(|| schema_from_name.as_deref());
+    let schema_hint = cmd.schema.as_deref().or(schema_from_name.as_deref());
     let (schema, table_name) = resolve_schema_table(schema_hint, &table_name, &resolved);
 
     let limit = common::parse_limit(cmd.limit, LIMIT_DEFAULT, LIMIT_MAX);

@@ -1163,7 +1163,7 @@ fn handle_object_diff(
         return Ok(());
     }
 
-    if let (Some(ref l), Some(ref r)) = (left_obj.as_ref(), right_obj.as_ref()) {
+    if let (Some(l), Some(r)) = (left_obj.as_ref(), right_obj.as_ref()) {
         let header_left = format!("{}:{}.{}.{}", left.name, l.schema_name, l.name, l.r#type);
         let header_right = format!("{}:{}.{}.{}", right.name, r.schema_name, r.name, r.r#type);
         let diff = TextDiff::from_lines(&raw_left, &raw_right)
