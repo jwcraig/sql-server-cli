@@ -119,6 +119,7 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
     };
 
     let profile_name = resolve_profile_name(options, env, config_file.default_profile.as_deref());
+    let profile_from_cli = options.cli.profile.is_some();
 
     let mut connection = ConnectionSettings::default();
     let mut settings = SettingsResolved::default();
@@ -131,7 +132,12 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
         apply_profile(&mut connection, &mut settings, profile, env);
     }
 
-    apply_env_overrides(&mut connection, &mut settings, env);
+    // Only let ambient env vars override when the profile was NOT explicitly set via CLI.
+    // This keeps the common “env > config” behavior for defaults, while making
+    // `--profile` deterministic even in repos with .env files.
+    if !profile_from_cli {
+        apply_env_overrides(&mut connection, &mut settings, env);
+    }
     apply_cli_overrides(&mut connection, &mut settings, &options.cli);
 
     Ok(ResolvedConfig {

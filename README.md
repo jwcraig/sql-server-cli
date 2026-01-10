@@ -205,7 +205,7 @@ The installed skill file tells agents:
 
 ## Configuration
 
-sscli supports three ways to configure a connection (highest priority wins):
+sscli supports three ways to configure a connection (highest priority wins; env vars are skipped if you pass `--profile`):
 
 ```bash
 # 1) CLI flags (one-off / scripts)
@@ -240,7 +240,7 @@ cp config.example.yaml .sql-server/config.yaml
 2. `SQL_SERVER_CONFIG` / `SQLSERVER_CONFIG`
 3. Walk up from CWD looking for `.sql-server/config.{yaml,yml,json}` or `.sqlserver/config.{yaml,yml,json}`
 4. Global config: `$XDG_CONFIG_HOME/sql-server/config.{yaml,yml,json}` (platform-dependent)
-5. Environment variables
+5. Environment variables (only applied when no `--profile` is provided)
 6. Hardcoded defaults
 
 Run `sscli config` to confirm which config file is being used and what values are in effect.
@@ -264,7 +264,7 @@ For a fully commented example (including `settings.output.*`, `timeout`, and `de
 
 ### Environment variables
 
-Environment variables override values from the config file.
+Environment variables override values from the config file when no explicit `--profile` was passed. If you pass `--profile <name>`, the profile values win over env vars (flags still win over both).
 
 **`.env` file support:** sscli automatically loads a `.env` file from the current directory if present, reading any of the supported variables listed below. Use `--env-file` to load a different file (e.g., `--env-file .env.dev`). This is useful for local development without polluting your shell environment.
 
