@@ -409,6 +409,15 @@ Exit codes: `0` = no drift, `3` = drift detected (summary/object/apply modes), `
 cargo test
 ```
 
+### Pre-push hook (local)
+
+This repo ships a local pre-push hook that runs `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test`. It’s already enabled via `core.hooksPath=.githooks`. If you need to bypass temporarily:
+
+```bash
+HUSKY=0 git push   # or
+SKIP=1 git push    # (any env; git ignores but hook can read if we add later)
+```
+
 DB-backed integration tests (opt-in):
 
 ```bash

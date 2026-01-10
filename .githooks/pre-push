@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Pre-push checks for sscli
+# Runs fast, deterministic validations before allowing a push.
+
+set -euo pipefail
+
+echo "[pre-push] cargo fmt --all -- --check" >&2
+cargo fmt --all -- --check
+
+echo "[pre-push] cargo clippy -- -D warnings" >&2
+cargo clippy -- -D warnings
+
+echo "[pre-push] cargo test" >&2
+cargo test
+
+echo "[pre-push] OK" >&2
