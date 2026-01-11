@@ -1340,14 +1340,14 @@ fn format_row(
     let mut line = String::new();
 
     let ln_left = left_no
-        .map(|n| format!("{n:>6}"))
-        .unwrap_or_else(|| "      ".to_string());
+        .map(|n| format!("{n:>5}"))
+        .unwrap_or_else(|| "     ".to_string());
     let ln_right = right_no
-        .map(|n| format!("{n:>6}"))
-        .unwrap_or_else(|| "      ".to_string());
+        .map(|n| format!("{n:>5}"))
+        .unwrap_or_else(|| "     ".to_string());
 
-    let left_body = truncate(left_text.unwrap_or(""), width);
-    let right_body = truncate(right_text.unwrap_or(""), width);
+    let left_body = pad_or_truncate(left_text.unwrap_or(""), width);
+    let right_body = pad_or_truncate(right_text.unwrap_or(""), width);
 
     let left_marker = marker(left_kind);
     let right_marker = marker(right_kind);
@@ -1359,10 +1359,7 @@ fn format_row(
     };
 
     line.push_str(&format!(
-        "{ln_left} {left_marker} {:width$} │ {right_marker} {ln_right} {:width$}",
-        left_body,
-        right_body,
-        width = width
+        "{ln_left} {left_marker} {left_body} │ {right_marker} {ln_right} {right_body}"
     ));
     line.push('\n');
     line
@@ -1399,6 +1396,15 @@ fn truncate(text: &str, max_len: usize) -> String {
         collected.push('…');
     }
     collected
+}
+
+fn pad_or_truncate(text: &str, width: usize) -> String {
+    let mut s = truncate(text, width);
+    let len = s.chars().count();
+    if len < width {
+        s.push_str(&" ".repeat(width - len));
+    }
+    s
 }
 
 fn clean_line(line: &str) -> String {
