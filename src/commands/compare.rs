@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
@@ -1166,6 +1167,10 @@ fn handle_object_diff(
     }
 
     if let (Some(l), Some(r)) = (left_obj.as_ref(), right_obj.as_ref()) {
+        if cmd.gui_diff && try_launch_code_diff(&raw_left, &raw_right, object)? {
+            std::process::exit(3);
+        }
+
         if cmd.side_by_side {
             let diff = TextDiff::from_lines(&raw_left, &raw_right);
             let rendered = render_side_by_side(
@@ -1425,6 +1430,30 @@ fn column_width() -> usize {
     let usable = total.saturating_sub(22); // gutters, markers, separators
     let per_side = usable / 2;
     per_side.clamp(40, 120)
+}
+
+fn try_launch_code_diff(left: &str, right: &str, object: &str) -> Result<bool> {
+    // Only attempt if `code` is available
+    let code = which::which("code").ok();
+    if code.is_none() {
+        return Ok(false);
+    }
+
+    let temp_dir = tempfile::tempdir()?;
+    let left_path = temp_dir.path().join(format!("left_{object}.sql"));
+    let right_path = temp_dir.path().join(format!("right_{object}.sql"));
+    std::fs::write(&left_path, left)?;
+    std::fs::write(&right_path, right)?;
+
+    let status = Command::new(code.unwrap())
+        .arg("--diff")
+        .arg(&left_path)
+        .arg(&right_path)
+        .status()
+        .context("Failed to launch VS Code diff")?;
+
+    // Don't remove tempdir immediately; VS Code needs the files. TempDir drops when process exits.
+    Ok(status.success())
 }
 
 fn columns_by_table(rows: &[TableColumnRow]) -> HashMap<String, Vec<TableColumnRow>> {

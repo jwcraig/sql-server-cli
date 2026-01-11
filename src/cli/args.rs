@@ -191,6 +191,7 @@ pub struct CompareArgs {
     pub ignore_whitespace: bool,
     pub strip_comments: bool,
     pub side_by_side: bool,
+    pub gui_diff: bool,
     pub apply_script: bool,
     pub apply_path: Option<String>,
     pub include_drops: bool,
@@ -881,6 +882,12 @@ fn command_compare(show_all: bool) -> Command {
             .help("Colorized split diff (only with --object)"),
     )
     .arg(
+        Arg::new("gui-diff")
+            .long("gui-diff")
+            .action(ArgAction::SetTrue)
+            .help("Open diff in VS Code (only with --object)"),
+    )
+    .arg(
         Arg::new("ignore-whitespace")
             .long("ignore-whitespace")
             .action(ArgAction::SetTrue)
@@ -1113,6 +1120,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             ignore_whitespace: sub_m.get_flag("ignore-whitespace"),
             strip_comments: sub_m.get_flag("strip-comments"),
             side_by_side: sub_m.get_flag("side-by-side"),
+            gui_diff: sub_m.get_flag("gui-diff"),
             apply_script: sub_m.contains_id("apply-script"),
             apply_path: sub_m.get_one::<String>("apply-script").cloned(),
             include_drops: sub_m.get_flag("include-drops"),
