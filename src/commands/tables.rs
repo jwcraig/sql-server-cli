@@ -322,6 +322,7 @@ fn run_describe_mode(
         object: None,
         schema: None,
         object_type: Some("table".to_string()),
+        usage: false,
         include_all: false,
         no_indexes: false,
         no_triggers: false,

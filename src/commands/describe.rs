@@ -105,6 +105,39 @@ struct ConstraintInfo {
     columns: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParameterDirection {
+    In,
+    InOut,
+    Return,
+}
+
+impl ParameterDirection {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ParameterDirection::In => "IN",
+            ParameterDirection::InOut => "INOUT",
+            ParameterDirection::Return => "RETURN",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ParameterInfo {
+    name: String,
+    direction: ParameterDirection,
+    data_type: String,
+    type_schema: String,
+    max_length: Option<i64>,
+    precision: Option<u8>,
+    scale: Option<u8>,
+    is_nullable: Option<bool>,
+    has_default: bool,
+    default_value: Option<Value>,
+    is_user_defined: bool,
+    is_table_type: bool,
+}
+
 /// Async function for describing a table with an existing client connection
 pub async fn describe_table_async(
     client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
@@ -435,6 +468,7 @@ async fn describe_table(
     let include_ddl = !cmd.no_ddl;
     let include_fks = cmd.include_all || cmd.include_fks;
     let include_constraints = cmd.include_all || cmd.include_constraints;
+    let include_usage = cmd.usage;
 
     let columns_rs = fetch_columns(client, table_name, schema).await?;
     let indexes = if include_indexes {
@@ -458,6 +492,12 @@ async fn describe_table(
     } else {
         None
     };
+    let usage_rs = if include_usage {
+        let u = fetch_usage(client, table_name, schema).await?;
+        if u.rows.is_empty() { None } else { Some(u) }
+    } else {
+        None
+    };
     let ddl = if include_ddl {
         fetch_table_ddl(client, table_name, schema).await?
     } else {
@@ -472,12 +512,14 @@ async fn describe_table(
         &fks,
         &constraints,
         triggers_rs.as_ref(),
+        usage_rs.as_ref(),
         ddl.as_deref(),
         format,
         json_pretty,
         include_indexes,
         include_fks,
         include_constraints,
+        include_usage,
     )
 }
 
@@ -490,8 +532,15 @@ async fn describe_view(
     json_pretty: bool,
 ) -> Result<String> {
     let include_ddl = !cmd.no_ddl;
+    let include_usage = cmd.usage;
 
     let columns_rs = fetch_columns(client, view_name, schema).await?;
+    let usage_rs = if include_usage {
+        let u = fetch_usage(client, view_name, schema).await?;
+        if u.rows.is_empty() { None } else { Some(u) }
+    } else {
+        None
+    };
     let ddl = if include_ddl {
         fetch_object_definition(client, view_name, schema).await?
     } else {
@@ -502,9 +551,11 @@ async fn describe_view(
         view_name,
         schema.unwrap_or("dbo"),
         &columns_rs,
+        usage_rs.as_ref(),
         ddl.as_deref(),
         format,
         json_pretty,
+        include_usage,
     )
 }
 
@@ -610,28 +661,7 @@ async fn describe_procedure(
 ) -> Result<String> {
     let include_ddl = !cmd.no_ddl;
 
-    // Get procedure parameters
-    let sql = r#"
-SELECT
-    p.name AS param_name,
-    TYPE_NAME(p.user_type_id) AS data_type,
-    p.max_length,
-    p.precision,
-    p.scale,
-    p.is_output
-FROM sys.parameters p
-INNER JOIN sys.objects o ON p.object_id = o.object_id
-INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
-WHERE o.name = @P1
-  AND (@P2 IS NULL OR s.name = @P2)
-  AND o.type = 'P'
-ORDER BY p.parameter_id
-"#;
-    let mut query = Query::new(sql);
-    query.bind(proc_name);
-    query.bind(schema);
-    let result_sets = executor::run_query(query, client).await?;
-    let params_rs = result_sets.into_iter().next().unwrap_or_default();
+    let parameters = fetch_parameters(client, proc_name, schema, false).await?;
 
     let ddl = if include_ddl {
         fetch_object_definition(client, proc_name, schema).await?
@@ -642,14 +672,7 @@ ORDER BY p.parameter_id
     let mut output = String::new();
 
     if matches!(format, OutputFormat::Json) {
-        let params: Vec<_> = params_rs.rows.iter().map(|row| {
-            json!({
-                "name": value_to_string(row.first()),
-                "dataType": value_to_string(row.get(1)),
-                "maxLength": row.get(2).and_then(|v| match v { Value::Int(i) => Some(*i), _ => None }),
-                "isOutput": value_to_bool(row.get(5)),
-            })
-        }).collect();
+        let params: Vec<_> = parameters.iter().map(parameter_to_json).collect();
 
         let mut payload = json!({
             "object": {
@@ -670,9 +693,9 @@ ORDER BY p.parameter_id
             output.push_str("\n```\n\n");
         }
 
-        if !params_rs.rows.is_empty() {
+        if !parameters.is_empty() {
             output.push_str("Parameters\n");
-            let params_display = format_params_result_set(&params_rs);
+            let params_display = parameters_to_result_set(&parameters);
             output.push_str(&table::render_result_set_table(
                 &params_display,
                 format,
@@ -720,27 +743,11 @@ WHERE o.name = @P1
         return Err(anyhow!("Function '{}' not found", fn_name));
     };
 
-    // Get function parameters (excluding return param at position 0)
-    let sql = r#"
-SELECT
-    p.name AS param_name,
-    TYPE_NAME(p.user_type_id) AS data_type,
-    p.max_length,
-    p.is_output
-FROM sys.parameters p
-INNER JOIN sys.objects o ON p.object_id = o.object_id
-INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
-WHERE o.name = @P1
-  AND (@P2 IS NULL OR s.name = @P2)
-  AND o.type IN ('FN', 'IF', 'TF', 'AF')
-  AND p.parameter_id > 0
-ORDER BY p.parameter_id
-"#;
-    let mut query = Query::new(sql);
-    query.bind(fn_name);
-    query.bind(schema);
-    let result_sets = executor::run_query(query, client).await?;
-    let params_rs = result_sets.into_iter().next().unwrap_or_default();
+    let parameters = fetch_parameters(client, fn_name, schema, true)
+        .await?
+        .into_iter()
+        .filter(|p| p.direction != ParameterDirection::Return)
+        .collect::<Vec<_>>();
 
     let ddl = if include_ddl {
         fetch_object_definition(client, fn_name, schema).await?
@@ -751,16 +758,7 @@ ORDER BY p.parameter_id
     let mut output = String::new();
 
     if matches!(format, OutputFormat::Json) {
-        let params: Vec<_> = params_rs
-            .rows
-            .iter()
-            .map(|row| {
-                json!({
-                    "name": value_to_string(row.first()),
-                    "dataType": value_to_string(row.get(1)),
-                })
-            })
-            .collect();
+        let params: Vec<_> = parameters.iter().map(parameter_to_json).collect();
 
         let mut payload = json!({
             "object": {
@@ -786,9 +784,9 @@ ORDER BY p.parameter_id
         output.push_str(&format!("Type: {}\n", fn_type));
         output.push_str(&format!("Returns: {}\n\n", return_type));
 
-        if !params_rs.rows.is_empty() {
+        if !parameters.is_empty() {
             output.push_str("Parameters\n");
-            let params_display = format_fn_params_result_set(&params_rs);
+            let params_display = parameters_to_result_set(&parameters);
             output.push_str(&table::render_result_set_table(
                 &params_display,
                 format,
@@ -828,6 +826,95 @@ ORDER BY ORDINAL_POSITION;
     query.bind(schema);
     let result_sets = executor::run_query(query, client).await?;
     Ok(result_sets.into_iter().next().unwrap_or_default())
+}
+
+async fn fetch_parameters(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    object_name: &str,
+    schema: Option<&str>,
+    include_return: bool,
+) -> Result<Vec<ParameterInfo>> {
+    let sql = format!(
+        r#"
+SELECT
+    p.parameter_id,
+    p.name,
+    p.is_output,
+    p.is_nullable,
+    p.has_default_value,
+    CONVERT(nvarchar(max), p.default_value) AS default_value,
+    t.name AS data_type,
+    st.name AS type_schema,
+    t.max_length,
+    t.precision,
+    t.scale,
+    t.is_user_defined,
+    t.is_table_type
+FROM sys.parameters p
+INNER JOIN sys.objects o ON p.object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
+INNER JOIN sys.schemas st ON t.schema_id = st.schema_id
+WHERE o.name = @P1
+  AND (@P2 IS NULL OR s.name = @P2)
+  AND o.type IN ('P', 'FN', 'IF', 'TF', 'AF')
+  {}
+ORDER BY p.parameter_id
+"#,
+        if include_return {
+            ""
+        } else {
+            "AND p.parameter_id > 0"
+        }
+    );
+
+    let mut query = Query::new(sql);
+    query.bind(object_name);
+    query.bind(schema);
+    let result_sets = executor::run_query(query, client).await?;
+    let result_set = result_sets.into_iter().next().unwrap_or_default();
+
+    let mut params = Vec::with_capacity(result_set.rows.len());
+    for row in result_set.rows {
+        let parameter_id = row.first().and_then(|v| match v {
+            Value::Int(i) => Some(*i as i32),
+            _ => None,
+        });
+        let direction = match (parameter_id, value_to_bool(row.get(2))) {
+            (Some(0), _) => ParameterDirection::Return,
+            (_, true) => ParameterDirection::InOut,
+            _ => ParameterDirection::In,
+        };
+
+        let name = value_to_string(row.get(1));
+        let data_type = value_to_string(row.get(6));
+        let type_schema = value_to_string(row.get(7));
+        let max_length = value_to_optional_i64(row.get(8));
+        let precision = value_to_optional_u8(row.get(9));
+        let scale = value_to_optional_u8(row.get(10));
+        let is_user_defined = value_to_bool(row.get(11));
+        let is_table_type = value_to_bool(row.get(12));
+        let is_nullable = value_to_optional_bool(row.get(3));
+        let has_default = value_to_bool(row.get(4));
+        let default_value = row.get(5).cloned().filter(|v| !matches!(v, Value::Null));
+
+        params.push(ParameterInfo {
+            name,
+            direction,
+            data_type,
+            type_schema,
+            max_length,
+            precision,
+            scale,
+            is_nullable,
+            has_default,
+            default_value,
+            is_user_defined,
+            is_table_type,
+        });
+    }
+
+    Ok(params)
 }
 
 async fn fetch_indexes(
@@ -1053,6 +1140,35 @@ ORDER BY tr.name;
     Ok(result_sets.into_iter().next().unwrap_or_default())
 }
 
+async fn fetch_usage(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    object_name: &str,
+    schema: Option<&str>,
+) -> Result<ResultSet> {
+    let schema_name = schema.unwrap_or("dbo");
+    let full_name = format!("[{}].[{}]", schema_name, object_name);
+
+    let sql = r#"
+DECLARE @target_id int = OBJECT_ID(@P1);
+
+SELECT DISTINCT
+    s.name AS schema_name,
+    o.name AS object_name,
+    o.type AS object_type,
+    o.type_desc AS object_type_desc
+FROM sys.sql_expression_dependencies d
+INNER JOIN sys.objects o ON d.referencing_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE d.referenced_id = @target_id
+  AND o.type IN ('P','FN','IF','TF','AF','TR','V')
+ORDER BY o.type_desc, s.name, o.name;
+"#;
+    let mut query = Query::new(sql);
+    query.bind(&full_name);
+    let result_sets = executor::run_query(query, client).await?;
+    Ok(result_sets.into_iter().next().unwrap_or_default())
+}
+
 async fn fetch_table_ddl(
     client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
     table_name: &str,
@@ -1240,12 +1356,14 @@ fn format_table_output(
     fks: &[ForeignKeyInfo],
     constraints: &[ConstraintInfo],
     triggers_rs: Option<&ResultSet>,
+    usage_rs: Option<&ResultSet>,
     ddl: Option<&str>,
     format: OutputFormat,
     json_pretty: bool,
     include_indexes: bool,
     include_fks: bool,
     include_constraints: bool,
+    include_usage: bool,
 ) -> Result<String> {
     let mut output = String::new();
 
@@ -1270,6 +1388,14 @@ fn format_table_output(
             payload["constraints"] = serde_json::Value::Array(
                 constraints.iter().map(|c| json!({"name": c.name, "type": c.constraint_type, "columns": c.columns})).collect()
             );
+        }
+        if include_usage {
+            if let Some(usage) = usage_rs {
+                payload["usage"] =
+                    serde_json::Value::Array(json_out::result_set_rows_to_objects(usage));
+            } else {
+                payload["usage"] = serde_json::Value::Array(Vec::new());
+            }
         }
         if let Some(triggers) = triggers_rs {
             payload["triggers"] =
@@ -1324,6 +1450,19 @@ fn format_table_output(
             ));
         }
 
+        if include_usage {
+            output.push_str("\nUsage\n");
+            if let Some(usage) = usage_rs {
+                output.push_str(&table::render_result_set_table(
+                    usage,
+                    format,
+                    &TableOptions::default(),
+                ));
+            } else {
+                output.push_str("(no dependent objects found)\n");
+            }
+        }
+
         if let Some(triggers) = triggers_rs {
             output.push_str("\nTriggers\n");
             output.push_str(&table::render_result_set_table(
@@ -1341,9 +1480,11 @@ fn format_view_output(
     view_name: &str,
     schema: &str,
     columns_rs: &ResultSet,
+    usage_rs: Option<&ResultSet>,
     ddl: Option<&str>,
     format: OutputFormat,
     json_pretty: bool,
+    include_usage: bool,
 ) -> Result<String> {
     let mut output = String::new();
 
@@ -1356,6 +1497,14 @@ fn format_view_output(
             },
             "columns": json_out::result_set_rows_to_objects(columns_rs),
         });
+        if include_usage {
+            if let Some(usage) = usage_rs {
+                payload["usage"] =
+                    serde_json::Value::Array(json_out::result_set_rows_to_objects(usage));
+            } else {
+                payload["usage"] = serde_json::Value::Array(Vec::new());
+            }
+        }
         if let Some(ddl_text) = ddl {
             payload["ddl"] = json!(ddl_text);
         }
@@ -1373,6 +1522,19 @@ fn format_view_output(
             format,
             &TableOptions::default(),
         ));
+
+        if include_usage {
+            output.push_str("\nUsage\n");
+            if let Some(usage) = usage_rs {
+                output.push_str(&table::render_result_set_table(
+                    usage,
+                    format,
+                    &TableOptions::default(),
+                ));
+            } else {
+                output.push_str("(no dependent objects found)\n");
+            }
+        }
     }
 
     Ok(output)
@@ -1508,75 +1670,6 @@ fn constraints_to_result_set(constraints: &[ConstraintInfo]) -> ResultSet {
     ResultSet { columns, rows }
 }
 
-fn format_params_result_set(params_rs: &ResultSet) -> ResultSet {
-    let columns = vec![
-        Column {
-            name: "name".to_string(),
-            data_type: None,
-        },
-        Column {
-            name: "dataType".to_string(),
-            data_type: None,
-        },
-        Column {
-            name: "maxLength".to_string(),
-            data_type: None,
-        },
-        Column {
-            name: "isOutput".to_string(),
-            data_type: None,
-        },
-    ];
-
-    let rows = params_rs
-        .rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Text(value_to_string(row.first())),
-                Value::Text(value_to_string(row.get(1))),
-                row.get(2).cloned().unwrap_or(Value::Null),
-                Value::Text(
-                    if value_to_bool(row.get(5)) {
-                        "yes"
-                    } else {
-                        "no"
-                    }
-                    .to_string(),
-                ),
-            ]
-        })
-        .collect();
-
-    ResultSet { columns, rows }
-}
-
-fn format_fn_params_result_set(params_rs: &ResultSet) -> ResultSet {
-    let columns = vec![
-        Column {
-            name: "name".to_string(),
-            data_type: None,
-        },
-        Column {
-            name: "dataType".to_string(),
-            data_type: None,
-        },
-    ];
-
-    let rows = params_rs
-        .rows
-        .iter()
-        .map(|row| {
-            vec![
-                Value::Text(value_to_string(row.first())),
-                Value::Text(value_to_string(row.get(1))),
-            ]
-        })
-        .collect();
-
-    ResultSet { columns, rows }
-}
-
 fn index_to_json(index: &IndexInfo) -> serde_json::Value {
     json!({
         "name": index.name,
@@ -1601,6 +1694,122 @@ fn fk_to_json(fk: &ForeignKeyInfo) -> serde_json::Value {
     })
 }
 
+fn parameter_to_json(param: &ParameterInfo) -> serde_json::Value {
+    json!({
+        "name": param.name,
+        "direction": param.direction.as_str(),
+        "dataType": render_parameter_type(param),
+        "typeSchema": param.type_schema,
+        "length": param.max_length,
+        "precision": param.precision,
+        "scale": param.scale,
+        "nullable": param.is_nullable,
+        "hasDefault": param.has_default,
+        "defaultValue": param
+            .default_value
+            .as_ref()
+            .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null)),
+        "userDefinedType": param.is_user_defined,
+        "tableType": param.is_table_type,
+    })
+}
+
+fn parameters_to_result_set(params: &[ParameterInfo]) -> ResultSet {
+    let columns = vec![
+        Column {
+            name: "name".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "direction".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "dataType".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "typeSchema".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "length".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "precision".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "scale".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "nullable".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "hasDefault".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "defaultValue".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "userDefinedType".to_string(),
+            data_type: None,
+        },
+        Column {
+            name: "tableType".to_string(),
+            data_type: None,
+        },
+    ];
+
+    let rows = params
+        .iter()
+        .map(|p| {
+            vec![
+                Value::Text(p.name.clone()),
+                Value::Text(p.direction.as_str().to_string()),
+                Value::Text(render_parameter_type(p)),
+                Value::Text(p.type_schema.clone()),
+                p.max_length.map(Value::Int).unwrap_or(Value::Null),
+                p.precision
+                    .map(|v| Value::Int(v as i64))
+                    .unwrap_or(Value::Null),
+                p.scale.map(|v| Value::Int(v as i64)).unwrap_or(Value::Null),
+                Value::Text(
+                    match p.is_nullable {
+                        Some(true) => "yes",
+                        Some(false) => "no",
+                        None => "unknown",
+                    }
+                    .to_string(),
+                ),
+                Value::Text(if p.has_default { "yes" } else { "no" }.to_string()),
+                p.default_value.clone().unwrap_or(Value::Null),
+                Value::Text(if p.is_user_defined { "yes" } else { "no" }.to_string()),
+                Value::Text(if p.is_table_type { "yes" } else { "no" }.to_string()),
+            ]
+        })
+        .collect();
+
+    ResultSet { columns, rows }
+}
+
+fn render_parameter_type(param: &ParameterInfo) -> String {
+    let base = if param.is_user_defined
+        || param.is_table_type
+        || !param.type_schema.eq_ignore_ascii_case("sys")
+    {
+        format!("{}.{}", param.type_schema, param.data_type)
+    } else {
+        param.data_type.clone()
+    };
+    format_type_spec(&base, param.max_length, param.precision, param.scale)
+}
+
 fn value_to_string(value: Option<&Value>) -> String {
     match value {
         Some(Value::Text(v)) => v.clone(),
@@ -1617,5 +1826,78 @@ fn value_to_bool(value: Option<&Value>) -> bool {
         Some(Value::Int(v)) => *v != 0,
         Some(Value::Text(v)) => v == "1" || v.eq_ignore_ascii_case("true"),
         _ => false,
+    }
+}
+
+fn value_to_optional_bool(value: Option<&Value>) -> Option<bool> {
+    match value {
+        Some(Value::Bool(v)) => Some(*v),
+        Some(Value::Int(v)) => Some(*v != 0),
+        Some(Value::Text(v)) if v.eq_ignore_ascii_case("true") || v == "1" => Some(true),
+        Some(Value::Text(v)) if v.eq_ignore_ascii_case("false") || v == "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn value_to_optional_i64(value: Option<&Value>) -> Option<i64> {
+    match value {
+        Some(Value::Int(v)) => Some(*v),
+        Some(Value::Text(v)) => v.parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn value_to_optional_u8(value: Option<&Value>) -> Option<u8> {
+    match value {
+        Some(Value::Int(v)) => (*v).try_into().ok(),
+        Some(Value::Text(v)) => v.parse::<u8>().ok(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_parameter_type_with_length() {
+        let param = ParameterInfo {
+            name: "@p1".to_string(),
+            direction: ParameterDirection::In,
+            data_type: "nvarchar".to_string(),
+            type_schema: "sys".to_string(),
+            max_length: Some(100),
+            precision: None,
+            scale: None,
+            is_nullable: Some(true),
+            has_default: false,
+            default_value: None,
+            is_user_defined: false,
+            is_table_type: false,
+        };
+        assert_eq!(render_parameter_type(&param), "nvarchar(50)");
+    }
+
+    #[test]
+    fn parameters_to_result_set_includes_fields() {
+        let param = ParameterInfo {
+            name: "@id".to_string(),
+            direction: ParameterDirection::InOut,
+            data_type: "int".to_string(),
+            type_schema: "sys".to_string(),
+            max_length: None,
+            precision: None,
+            scale: None,
+            is_nullable: Some(false),
+            has_default: true,
+            default_value: Some(Value::Int(1)),
+            is_user_defined: false,
+            is_table_type: false,
+        };
+        let rs = parameters_to_result_set(&[param]);
+        assert_eq!(rs.columns.len(), 12);
+        assert_eq!(rs.rows.len(), 1);
+        assert_eq!(rs.rows[0][1], Value::Text("INOUT".to_string()));
+        assert_eq!(rs.rows[0][9], Value::Int(1));
     }
 }

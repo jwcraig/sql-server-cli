@@ -82,6 +82,7 @@ pub struct DescribeArgs {
     pub object: Option<String>,
     pub schema: Option<String>,
     pub object_type: Option<String>,
+    pub usage: bool,
     pub include_all: bool,
     pub no_indexes: bool,
     pub no_triggers: bool,
@@ -536,6 +537,14 @@ fn command_describe(show_all: bool) -> Command {
             .long("all")
             .action(ArgAction::SetTrue)
             .help("Include foreign keys and constraints (tables only)"),
+    )
+    .arg(
+        Arg::new("usage")
+            .long("usage")
+            .action(ArgAction::SetTrue)
+            .help(
+                "Show objects that reference this object (procedures, functions, triggers, views)",
+            ),
     )
     .arg(
         Arg::new("no-indexes")
@@ -1000,6 +1009,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             object: sub_m.get_one::<String>("object").cloned(),
             schema: sub_m.get_one::<String>("schema").cloned(),
             object_type: sub_m.get_one::<String>("type").cloned(),
+            usage: sub_m.get_flag("usage"),
             include_all: sub_m.get_flag("all"),
             no_indexes: sub_m.get_flag("no-indexes"),
             no_triggers: sub_m.get_flag("no-triggers"),
