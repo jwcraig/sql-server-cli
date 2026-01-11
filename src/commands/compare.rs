@@ -1127,6 +1127,25 @@ fn pick_first_module(snapshot: &Snapshot, object: &str) -> Option<ModuleRow> {
     snapshot.modules.iter().find(|m| pred(m)).cloned()
 }
 
+fn match_table_predicate(object: &str) -> Box<dyn Fn(&TableRow) -> bool + '_> {
+    let parts: Vec<&str> = object.split('.').collect();
+    if parts.len() == 2 {
+        let schema = parts[0].to_lowercase();
+        let name = parts[1].to_lowercase();
+        return Box::new(move |row: &TableRow| {
+            row.schema_name.eq_ignore_ascii_case(&schema)
+                && row.table_name.eq_ignore_ascii_case(&name)
+        });
+    }
+    let name = object.to_lowercase();
+    Box::new(move |row: &TableRow| row.table_name.eq_ignore_ascii_case(&name))
+}
+
+fn pick_first_table(snapshot: &Snapshot, object: &str) -> Option<TableRow> {
+    let pred = match_table_predicate(object);
+    snapshot.tables.iter().find(|t| pred(t)).cloned()
+}
+
 fn handle_object_diff(
     args: &CliArgs,
     cmd: &CompareArgs,
@@ -1138,8 +1157,7 @@ fn handle_object_diff(
     let right_obj = pick_first_module(right, object);
 
     if left_obj.is_none() && right_obj.is_none() {
-        println!("Object '{object}' not found in either side.");
-        std::process::exit(4);
+        return handle_table_object_diff(args, cmd, left, right, object);
     }
 
     let norm_left = left_obj
@@ -1215,6 +1233,92 @@ fn handle_object_diff(
     }
 }
 
+fn handle_table_object_diff(
+    args: &CliArgs,
+    cmd: &CompareArgs,
+    left: &Snapshot,
+    right: &Snapshot,
+    object: &str,
+) -> Result<()> {
+    let left_tbl = pick_first_table(left, object);
+    let right_tbl = pick_first_table(right, object);
+
+    if left_tbl.is_none() && right_tbl.is_none() {
+        println!("Object '{object}' not found in either side.");
+        std::process::exit(4);
+    }
+
+    let left_def = left_tbl
+        .as_ref()
+        .map(|t| build_table_definition(left, &t.schema_name, &t.table_name))
+        .transpose()?
+        .unwrap_or_default();
+    let right_def = right_tbl
+        .as_ref()
+        .map(|t| build_table_definition(right, &t.schema_name, &t.table_name))
+        .transpose()?
+        .unwrap_or_default();
+
+    let norm_left = normalize_definition(&left_def, cmd.ignore_whitespace, cmd.strip_comments);
+    let norm_right = normalize_definition(&right_def, cmd.ignore_whitespace, cmd.strip_comments);
+
+    if left_tbl.is_some() && right_tbl.is_some() && norm_left == norm_right {
+        if !args.quiet {
+            println!("No substantive drift for {object} (whitespace/comments ignored).");
+        }
+        return Ok(());
+    }
+
+    if cmd.gui_diff && try_launch_code_diff(&left_def, &right_def, object)? {
+        std::process::exit(3);
+    }
+
+    if cmd.side_by_side {
+        let diff = TextDiff::from_lines(&left_def, &right_def);
+        let rendered = render_side_by_side(
+            &diff,
+            &format!(
+                "{}:{}.{}",
+                left.name,
+                left_tbl
+                    .as_ref()
+                    .map(|t| t.schema_name.as_str())
+                    .unwrap_or(""),
+                object_name_only(object)
+            ),
+            &format!(
+                "{}:{}.{}",
+                right.name,
+                right_tbl
+                    .as_ref()
+                    .map(|t| t.schema_name.as_str())
+                    .unwrap_or(""),
+                object_name_only(object)
+            ),
+            should_color_stdout(),
+        );
+        println!("{rendered}");
+        std::process::exit(3);
+    }
+
+    let header_left = left_tbl
+        .as_ref()
+        .map(|t| format!("{}:{}.{}", left.name, t.schema_name, t.table_name))
+        .unwrap_or_else(|| format!("{}:missing", left.name));
+    let header_right = right_tbl
+        .as_ref()
+        .map(|t| format!("{}:{}.{}", right.name, t.schema_name, t.table_name))
+        .unwrap_or_else(|| format!("{}:missing", right.name));
+
+    let diff = TextDiff::from_lines(&left_def, &right_def)
+        .unified_diff()
+        .context_radius(5)
+        .header(&header_left, &header_right)
+        .to_string();
+    println!("{diff}");
+    std::process::exit(3);
+}
+
 fn type_keyword(code: &str) -> &'static str {
     match code {
         "P" => "PROCEDURE",
@@ -1223,6 +1327,107 @@ fn type_keyword(code: &str) -> &'static str {
         "TR" => "TRIGGER",
         _ => "OBJECT",
     }
+}
+
+fn build_table_definition(snapshot: &Snapshot, schema: &str, table: &str) -> Result<String> {
+    let mut cols: Vec<&TableColumnRow> = snapshot
+        .table_columns
+        .iter()
+        .filter(|c| {
+            c.schema_name.eq_ignore_ascii_case(schema) && c.table_name.eq_ignore_ascii_case(table)
+        })
+        .collect();
+    if cols.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Table '{}.{}' columns not found in snapshot",
+            schema,
+            table
+        ));
+    }
+    cols.sort_by_key(|c| c.column_id);
+
+    let mut lines: Vec<String> = Vec::new();
+    for col in cols {
+        if !col.computed_definition.is_empty() {
+            lines.push(format!(
+                "    [{}] AS {}",
+                col.column_name, col.computed_definition
+            ));
+            continue;
+        }
+        let type_spec = table_type_spec(&col.data_type, col.max_length, col.precision, col.scale);
+        let mut line = format!("    [{}] {}", col.column_name, type_spec);
+        if col.is_identity {
+            line.push_str(" IDENTITY(1,1)");
+        }
+        if col.is_nullable {
+            line.push_str(" NULL");
+        } else {
+            line.push_str(" NOT NULL");
+        }
+        if !col.default_definition.is_empty() {
+            line.push_str(&format!(" DEFAULT {}", col.default_definition));
+        }
+        lines.push(line);
+    }
+
+    let mut ddl = format!("CREATE TABLE [{}].[{}] (\n", schema, table);
+    ddl.push_str(&lines.join(",\n"));
+    ddl.push_str("\n);\n");
+
+    // Append constraint definitions if present (not executed, for diff visibility)
+    let constraint_defs: Vec<&ConstraintRow> = snapshot
+        .constraints
+        .iter()
+        .filter(|c| {
+            c.schema_name.eq_ignore_ascii_case(schema) && c.table_name.eq_ignore_ascii_case(table)
+        })
+        .collect();
+    if !constraint_defs.is_empty() {
+        ddl.push_str("\n-- Constraints\n");
+        for c in constraint_defs {
+            ddl.push_str(&format!("-- {} ({})\n{}\n", c.name, c.r#type, c.definition));
+        }
+    }
+
+    Ok(ddl.replace("\r\n", "\n"))
+}
+
+fn table_type_spec(data_type: &str, max_length: i64, precision: i64, scale: i64) -> String {
+    match data_type.to_lowercase().as_str() {
+        "varchar" | "nvarchar" | "char" | "nchar" | "varbinary" | "binary" => {
+            if max_length == -1 {
+                format!("{}(MAX)", data_type)
+            } else {
+                let display_len = if data_type.starts_with('n') {
+                    max_length / 2
+                } else {
+                    max_length
+                };
+                format!("{}({})", data_type, display_len)
+            }
+        }
+        "decimal" | "numeric" => format!("{}({}, {})", data_type, precision, scale),
+        "float" => {
+            if precision != 53 {
+                format!("float({})", precision)
+            } else {
+                "float".to_string()
+            }
+        }
+        "datetime2" | "datetimeoffset" | "time" => {
+            if scale != 7 {
+                format!("{}({})", data_type, scale)
+            } else {
+                data_type.to_string()
+            }
+        }
+        _ => data_type.to_string(),
+    }
+}
+
+fn object_name_only(input: &str) -> &str {
+    input.rsplit('.').next().unwrap_or(input)
 }
 
 fn create_or_alter(definition: &str, type_key: &str) -> String {
