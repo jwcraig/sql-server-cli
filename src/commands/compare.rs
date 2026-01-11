@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use chrono::Local;
+use owo_colors::{OwoColorize, Style};
 use regex::Regex;
 use serde::Serialize;
-use similar::TextDiff;
+use similar::{DiffTag, TextDiff};
 use tiberius::Query;
 use tokio::runtime::Runtime;
 
@@ -1164,15 +1166,27 @@ fn handle_object_diff(
     }
 
     if let (Some(l), Some(r)) = (left_obj.as_ref(), right_obj.as_ref()) {
-        let header_left = format!("{}:{}.{}.{}", left.name, l.schema_name, l.name, l.r#type);
-        let header_right = format!("{}:{}.{}.{}", right.name, r.schema_name, r.name, r.r#type);
-        let diff = TextDiff::from_lines(&raw_left, &raw_right)
-            .unified_diff()
-            .context_radius(5)
-            .header(&header_left, &header_right)
-            .to_string();
-        println!("{diff}");
-        std::process::exit(3);
+        if cmd.side_by_side {
+            let diff = TextDiff::from_lines(&raw_left, &raw_right);
+            let rendered = render_side_by_side(
+                &diff,
+                &format!("{}:{}.{}", left.name, l.schema_name, l.name),
+                &format!("{}:{}.{}", right.name, r.schema_name, r.name),
+                should_color_stdout(),
+            );
+            println!("{rendered}");
+            std::process::exit(3);
+        } else {
+            let header_left = format!("{}:{}.{}.{}", left.name, l.schema_name, l.name, l.r#type);
+            let header_right = format!("{}:{}.{}.{}", right.name, r.schema_name, r.name, r.r#type);
+            let diff = TextDiff::from_lines(&raw_left, &raw_right)
+                .unified_diff()
+                .context_radius(5)
+                .header(&header_left, &header_right)
+                .to_string();
+            println!("{diff}");
+            std::process::exit(3);
+        }
     } else {
         println!(
             "Left: {}",
@@ -1218,6 +1232,181 @@ fn create_or_alter(definition: &str, type_key: &str) -> String {
         .expect("valid regex")
         .replace(cleaned, format!("CREATE OR ALTER {type_key}"))
         .to_string()
+}
+
+fn render_side_by_side(
+    diff: &TextDiff<'_, '_, '_, str>,
+    left_label: &str,
+    right_label: &str,
+    color: bool,
+) -> String {
+    const COL_WIDTH: usize = 70;
+    let mut out = String::new();
+    out.push_str(&format!(
+        "Side-by-side diff (left vs right)\nLeft: {left_label}\nRight: {right_label}\n\n"
+    ));
+
+    let mut left_no: usize = 1;
+    let mut right_no: usize = 1;
+
+    for op in diff.ops() {
+        if matches!(op.tag(), DiffTag::Equal) {
+            for change in diff.iter_changes(op) {
+                let text = clean_line(change.value());
+                out.push_str(&format_row(
+                    Some(left_no),
+                    Some(&text),
+                    Some(right_no),
+                    Some(&text),
+                    ChangeKind::Equal,
+                    ChangeKind::Equal,
+                    COL_WIDTH,
+                    color,
+                ));
+                left_no += 1;
+                right_no += 1;
+            }
+            continue;
+        }
+
+        let mut left_lines: Vec<String> = Vec::new();
+        let mut right_lines: Vec<String> = Vec::new();
+        for change in diff.iter_changes(op) {
+            match change.tag() {
+                similar::ChangeTag::Delete => left_lines.push(clean_line(change.value())),
+                similar::ChangeTag::Insert => right_lines.push(clean_line(change.value())),
+                similar::ChangeTag::Equal => {}
+            }
+        }
+
+        let max_rows = left_lines.len().max(right_lines.len());
+        for idx in 0..max_rows {
+            let l = left_lines.get(idx);
+            let r = right_lines.get(idx);
+
+            let row_kind_left = if l.is_some() {
+                ChangeKind::Delete
+            } else {
+                ChangeKind::Context
+            };
+            let row_kind_right = if r.is_some() {
+                ChangeKind::Insert
+            } else {
+                ChangeKind::Context
+            };
+
+            out.push_str(&format_row(
+                l.as_ref().map(|_| left_no),
+                l.map(|s| s.as_str()),
+                r.as_ref().map(|_| right_no),
+                r.map(|s| s.as_str()),
+                row_kind_left,
+                row_kind_right,
+                COL_WIDTH,
+                color,
+            ));
+
+            if l.is_some() {
+                left_no += 1;
+            }
+            if r.is_some() {
+                right_no += 1;
+            }
+        }
+    }
+
+    out
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum ChangeKind {
+    Equal,
+    Insert,
+    Delete,
+    Context,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn format_row(
+    left_no: Option<usize>,
+    left_text: Option<&str>,
+    right_no: Option<usize>,
+    right_text: Option<&str>,
+    left_kind: ChangeKind,
+    right_kind: ChangeKind,
+    width: usize,
+    color: bool,
+) -> String {
+    let mut line = String::new();
+
+    let ln_left = left_no
+        .map(|n| format!("{n:>6}"))
+        .unwrap_or_else(|| "      ".to_string());
+    let ln_right = right_no
+        .map(|n| format!("{n:>6}"))
+        .unwrap_or_else(|| "      ".to_string());
+
+    let left_body = truncate(left_text.unwrap_or(""), width);
+    let right_body = truncate(right_text.unwrap_or(""), width);
+
+    let left_marker = marker(left_kind);
+    let right_marker = marker(right_kind);
+
+    let (left_body, right_body) = if color {
+        (paint(&left_body, left_kind), paint(&right_body, right_kind))
+    } else {
+        (left_body, right_body)
+    };
+
+    line.push_str(&format!(
+        "{ln_left} {left_marker} {:width$} │ {right_marker} {ln_right} {}",
+        left_body,
+        right_body,
+        width = width
+    ));
+    line.push('\n');
+    line
+}
+
+fn paint(text: &str, kind: ChangeKind) -> String {
+    match kind {
+        ChangeKind::Equal | ChangeKind::Context => text.style(Style::new().dimmed()).to_string(),
+        ChangeKind::Insert => text.green().to_string(),
+        ChangeKind::Delete => text.red().to_string(),
+    }
+}
+
+fn marker(kind: ChangeKind) -> char {
+    match kind {
+        ChangeKind::Equal | ChangeKind::Context => ' ',
+        ChangeKind::Insert => '+',
+        ChangeKind::Delete => '-',
+    }
+}
+
+fn truncate(text: &str, max_len: usize) -> String {
+    let mut collected = String::new();
+    let mut iter = text.chars();
+    for _ in 0..max_len {
+        if let Some(ch) = iter.next() {
+            collected.push(ch);
+        } else {
+            return collected;
+        }
+    }
+    if iter.next().is_some() && max_len > 0 {
+        collected.pop();
+        collected.push('…');
+    }
+    collected
+}
+
+fn clean_line(line: &str) -> String {
+    line.trim_end_matches(['\r', '\n']).to_string()
+}
+
+fn should_color_stdout() -> bool {
+    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
 fn columns_by_table(rows: &[TableColumnRow]) -> HashMap<String, Vec<TableColumnRow>> {
