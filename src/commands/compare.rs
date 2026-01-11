@@ -1240,7 +1240,7 @@ fn render_side_by_side(
     right_label: &str,
     color: bool,
 ) -> String {
-    const COL_WIDTH: usize = 70;
+    let col_width = column_width();
     let mut out = String::new();
     out.push_str(&format!(
         "Side-by-side diff (left vs right)\nLeft: {left_label}\nRight: {right_label}\n\n"
@@ -1260,7 +1260,7 @@ fn render_side_by_side(
                     Some(&text),
                     ChangeKind::Equal,
                     ChangeKind::Equal,
-                    COL_WIDTH,
+                    col_width,
                     color,
                 ));
                 left_no += 1;
@@ -1302,7 +1302,7 @@ fn render_side_by_side(
                 r.map(|s| s.as_str()),
                 row_kind_left,
                 row_kind_right,
-                COL_WIDTH,
+                col_width,
                 color,
             ));
 
@@ -1359,7 +1359,7 @@ fn format_row(
     };
 
     line.push_str(&format!(
-        "{ln_left} {left_marker} {:width$} │ {right_marker} {ln_right} {}",
+        "{ln_left} {left_marker} {:width$} │ {right_marker} {ln_right} {:width$}",
         left_body,
         right_body,
         width = width
@@ -1402,11 +1402,23 @@ fn truncate(text: &str, max_len: usize) -> String {
 }
 
 fn clean_line(line: &str) -> String {
-    line.trim_end_matches(['\r', '\n']).to_string()
+    line.trim_end_matches(['\r', '\n'])
+        .replace('\t', "    ")
+        .to_string()
 }
 
 fn should_color_stdout() -> bool {
     std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+}
+
+fn column_width() -> usize {
+    let env_width = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok());
+    let total = env_width.unwrap_or(160);
+    let usable = total.saturating_sub(22); // gutters, markers, separators
+    let per_side = usable / 2;
+    per_side.clamp(40, 120)
 }
 
 fn columns_by_table(rows: &[TableColumnRow]) -> HashMap<String, Vec<TableColumnRow>> {
