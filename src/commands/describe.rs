@@ -1476,6 +1476,7 @@ fn format_table_output(
     Ok(output)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_view_output(
     view_name: &str,
     schema: &str,

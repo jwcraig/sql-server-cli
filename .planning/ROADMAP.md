@@ -15,14 +15,14 @@ None
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Discovery** - Analyze current describe command patterns and catalog views
-- [ ] **Phase 2: Database Query** - Add sys.parameters catalog query to db layer
-- [ ] **Phase 3: Data Model** - Create parameter metadata structs
-- [ ] **Phase 4: Procedure Integration** - Wire parameters into procedure describe
-- [ ] **Phase 5: Function Integration** - Extend to scalar/table-valued functions
-- [ ] **Phase 6: Table Output** - Parameters section in table format
-- [ ] **Phase 7: JSON Output** - Structured parameter data in JSON
-- [ ] **Phase 8: Markdown Output** - Parameters in markdown format
-- [ ] **Phase 9: Edge Cases** - Defaults, NULLability, user-defined types
+- [x] **Phase 2: Database Query** - Add sys.parameters catalog query to db layer
+- [x] **Phase 3: Data Model** - Create parameter metadata structs
+- [x] **Phase 4: Procedure Integration** - Wire parameters into procedure describe
+- [x] **Phase 5: Function Integration** - Extend to scalar/table-valued functions
+- [x] **Phase 6: Table Output** - Parameters section in table format
+- [x] **Phase 7: JSON Output** - Structured parameter data in JSON
+- [x] **Phase 8: Markdown Output** - Parameters in markdown format
+- [x] **Phase 9: Edge Cases** - Defaults, NULLability, user-defined types
 - [ ] **Phase 10: Testing** - Integration test coverage
 
 ## Phase Details
@@ -45,7 +45,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 02-01: Add parameter query to db layer
+- [x] 02-01: Add parameter query to db layer
 
 ### Phase 3: Data Model
 **Goal**: Define Rust structs for parameter metadata
@@ -54,7 +54,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 03-01: Create ParameterInfo struct and related types
+- [x] 03-01: Create ParameterInfo struct and related types
 
 ### Phase 4: Procedure Integration
 **Goal**: Integrate parameter display into stored procedure describe output
@@ -63,7 +63,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 04-01: Wire parameters into procedure describe flow
+- [x] 04-01: Wire parameters into procedure describe flow
 
 ### Phase 5: Function Integration
 **Goal**: Extend parameter support to scalar and table-valued functions
@@ -72,7 +72,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 05-01: Add function parameter support
+- [x] 05-01: Add function parameter support
 
 ### Phase 6: Table Output
 **Goal**: Format parameters as table section in terminal output
@@ -81,7 +81,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 06-01: Add parameters section to table formatter
+- [x] 06-01: Add parameters section to table formatter
 
 ### Phase 7: JSON Output
 **Goal**: Include structured parameter data in JSON output
@@ -90,7 +90,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 07-01: Add parameters to JSON output structure
+- [x] 07-01: Add parameters to JSON output structure
 
 ### Phase 8: Markdown Output
 **Goal**: Format parameters in markdown output
@@ -99,7 +99,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 08-01: Add parameters to markdown formatter
+- [x] 08-01: Add parameters to markdown formatter
 
 ### Phase 9: Edge Cases
 **Goal**: Handle defaults, NULLability, user-defined types, special scenarios
@@ -108,7 +108,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 09-01: Handle parameter edge cases
+- [x] 09-01: Handle parameter edge cases
 
 ### Phase 10: Testing
 **Goal**: Comprehensive integration tests for parameter inspection
@@ -127,12 +127,12 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Discovery | 1/1 | Complete | 2026-01-11 |
-| 2. Database Query | 0/1 | Not started | - |
-| 3. Data Model | 0/1 | Not started | - |
-| 4. Procedure Integration | 0/1 | Not started | - |
-| 5. Function Integration | 0/1 | Not started | - |
-| 6. Table Output | 0/1 | Not started | - |
-| 7. JSON Output | 0/1 | Not started | - |
-| 8. Markdown Output | 0/1 | Not started | - |
-| 9. Edge Cases | 0/1 | Not started | - |
-| 10. Testing | 0/1 | Not started | - |
+| 2. Database Query | 1/1 | Complete | 2026-01-11 |
+| 3. Data Model | 1/1 | Complete | 2026-01-11 |
+| 4. Procedure Integration | 1/1 | Complete | 2026-01-11 |
+| 5. Function Integration | 1/1 | Complete | 2026-01-11 |
+| 6. Table Output | 1/1 | Complete | 2026-01-11 |
+| 7. JSON Output | 1/1 | Complete | 2026-01-11 |
+| 8. Markdown Output | 1/1 | Complete | 2026-01-11 |
+| 9. Edge Cases | 1/1 | Complete | 2026-01-11 |
+| 10. Testing | 0/1 | In progress (unit coverage added) | - |

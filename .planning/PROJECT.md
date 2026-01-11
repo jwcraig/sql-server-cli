@@ -19,13 +19,13 @@ Enhancement to sscli's `describe` command that adds complete parameter metadata 
 
 ### Active
 
-- [ ] Display stored procedure parameters as separate section with complete metadata
-- [ ] Include parameter direction (IN/OUT/INOUT)
-- [ ] Include data type with length/precision/scale
-- [ ] Include default values where defined
-- [ ] Include nullability information
-- [ ] Support function parameters (scalar and table-valued)
-- [ ] Consistent output across all formats (table, JSON, markdown)
+- [x] Display stored procedure parameters as separate section with complete metadata
+- [x] Include parameter direction (IN/OUT/INOUT)
+- [x] Include data type with length/precision/scale
+- [x] Include default values where defined
+- [x] Include nullability information
+- [x] Support function parameters (scalar and table-valued)
+- [x] Consistent output across all formats (table, JSON, markdown)
 
 ### Out of Scope
 
@@ -49,9 +49,9 @@ Enhancement to sscli's `describe` command that adds complete parameter metadata 
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Separate "Parameters:" section | Clear separation from definition, easier to parse | — Pending |
-| Query sys.parameters over INFORMATION_SCHEMA | Richer metadata including defaults | — Pending |
-| Include functions alongside procedures | Consistent behavior, user expectation | — Pending |
+| Separate "Parameters:" section | Clear separation from definition, easier to parse | Implemented |
+| Query sys.parameters over INFORMATION_SCHEMA | Richer metadata including defaults | Implemented |
+| Include functions alongside procedures | Consistent behavior, user expectation | Implemented |
 
 ---
-*Last updated: 2026-01-11 after initialization*
+*Last updated: 2026-01-11 after parameter metadata implementation*
