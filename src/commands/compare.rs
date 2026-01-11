@@ -4,6 +4,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -1439,21 +1440,62 @@ fn try_launch_code_diff(left: &str, right: &str, object: &str) -> Result<bool> {
         return Ok(false);
     }
 
-    let temp_dir = tempfile::tempdir()?;
-    let left_path = temp_dir.path().join(format!("left_{object}.sql"));
-    let right_path = temp_dir.path().join(format!("right_{object}.sql"));
-    std::fs::write(&left_path, left)?;
-    std::fs::write(&right_path, right)?;
+    let (left_path, right_path, dir) = create_persistent_diff_files(left, right, object)?;
 
     let status = Command::new(code.unwrap())
+        .arg("--new-window")
         .arg("--diff")
         .arg(&left_path)
         .arg(&right_path)
         .status()
-        .context("Failed to launch VS Code diff")?;
+        .with_context(|| format!("Failed to launch VS Code diff in {}", dir.display()))?;
 
-    // Don't remove tempdir immediately; VS Code needs the files. TempDir drops when process exits.
     Ok(status.success())
+}
+
+fn create_persistent_diff_files(
+    left: &str,
+    right: &str,
+    object: &str,
+) -> Result<(PathBuf, PathBuf, PathBuf)> {
+    let safe_name = sanitize_name(object);
+    let suffix = unique_suffix();
+    let base_dir = std::env::temp_dir()
+        .join("sscli-diff")
+        .join(&safe_name)
+        .join(suffix);
+    std::fs::create_dir_all(&base_dir)
+        .with_context(|| format!("create temp diff dir {}", base_dir.display()))?;
+
+    let left_path = base_dir.join(format!("left_{safe_name}.sql"));
+    let right_path = base_dir.join(format!("right_{safe_name}.sql"));
+    std::fs::write(&left_path, left).with_context(|| format!("write {}", left_path.display()))?;
+    std::fs::write(&right_path, right)
+        .with_context(|| format!("write {}", right_path.display()))?;
+
+    Ok((left_path, right_path, base_dir))
+}
+
+fn sanitize_name(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn unique_suffix() -> String {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let pid = std::process::id();
+    format!("{ts}-{pid}")
 }
 
 fn columns_by_table(rows: &[TableColumnRow]) -> HashMap<String, Vec<TableColumnRow>> {
