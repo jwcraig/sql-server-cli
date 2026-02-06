@@ -212,6 +212,21 @@ pub fn calculate_total(items: &[Item], tax_rate: f64) -> Result<f64, Calculation
 - [ ] No commented-out code or debug statements
 - [ ] No hardcoded credentials
 
+## Local build + install (for users to verify changes)
+
+After tests pass, build and install locally so the user can run the updated binary:
+
+```bash
+cargo build --release
+cargo install --path . --force
+```
+
+Example quick check:
+
+```bash
+sscli columns <object>
+```
+
 ---
 
 **Remember:** Prioritize clarity and maintainability over cleverness.

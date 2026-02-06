@@ -487,7 +487,7 @@ fn map_modules(rs: Option<&ResultSet>) -> Vec<ModuleRow> {
         .map(|row| ModuleRow {
             schema_name: get_text(row, idx_schema),
             name: get_text(row, idx_name),
-            r#type: get_text(row, idx_type),
+            r#type: get_text(row, idx_type).trim().to_uppercase(),
             definition: get_text(row, idx_def),
         })
         .collect()
@@ -1007,6 +1007,26 @@ fn drift_rows(summary: &CompareSummary) -> Vec<DriftRow> {
         push_constraint(key, "Only in target");
     }
 
+    rows.sort_by(|a, b| {
+        let kind_cmp = a
+            .kind
+            .to_ascii_lowercase()
+            .cmp(&b.kind.to_ascii_lowercase());
+        if kind_cmp != std::cmp::Ordering::Equal {
+            return kind_cmp;
+        }
+
+        let obj_cmp = a
+            .object
+            .to_ascii_lowercase()
+            .cmp(&b.object.to_ascii_lowercase());
+        if obj_cmp != std::cmp::Ordering::Equal {
+            return obj_cmp;
+        }
+
+        a.status.cmp(&b.status)
+    });
+
     rows
 }
 
@@ -1066,7 +1086,7 @@ fn render_drift_table(rows: Vec<DriftRow>, format: OutputFormat) -> String {
             .collect(),
     };
     let opts = crate::output::table::TableOptions::default();
-    crate::output::table::render_result_set_table(&rs, format, &opts)
+    crate::output::table::render_result_set_table(&rs, format, &opts).output
 }
 
 fn render_counts_table(summary: &CompareSummary, format: OutputFormat) -> String {
@@ -1097,7 +1117,7 @@ fn render_counts_table(summary: &CompareSummary, format: OutputFormat) -> String
         ],
     };
     let opts = crate::output::table::TableOptions::default();
-    crate::output::table::render_result_set_table(&rs, format, &opts)
+    crate::output::table::render_result_set_table(&rs, format, &opts).output
 }
 
 fn row_counts(kind: &str, diff: &DiffSet) -> Vec<Value> {
@@ -1320,7 +1340,7 @@ fn handle_table_object_diff(
 }
 
 fn type_keyword(code: &str) -> &'static str {
-    match code {
+    match code.trim().to_uppercase().as_str() {
         "P" => "PROCEDURE",
         "V" => "VIEW",
         "FN" | "IF" | "TF" => "FUNCTION",

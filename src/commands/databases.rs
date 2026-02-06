@@ -112,8 +112,8 @@ WHERE (@P1 = 1 OR database_id > 4)
             limit: page_limit,
         });
     }
-    let rendered = table::render_result_set_table(&rows, format, &options);
-    println!("{}", rendered);
+    let result = table::render_result_set_table(&rows, format, &options);
+    println!("{}", result.output);
 
     Ok(())
 }

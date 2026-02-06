@@ -20,3 +20,4 @@ These commands run the local `sscli` CLI and inject output into the prompt.
 
 - The underlying CLI is expected to be on `PATH` as `sscli`.
 - Prefer `--json` when you need structured data.
+- Output is truncated by default (cells >140 chars, total >25KB). Use `--no-truncate` for full output.

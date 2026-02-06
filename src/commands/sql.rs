@@ -157,13 +157,19 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         return Ok(());
     }
 
+    let table_options = if cmd.no_truncate {
+        TableOptions::unlimited()
+    } else {
+        TableOptions::truncated()
+    };
+
     let display_sets = truncate_result_sets(&result_sets, max_rows);
     for (idx, result_set) in display_sets.iter().enumerate() {
         if display_sets.len() > 1 {
             println!("Result set {}", idx + 1);
         }
-        let rendered = table::render_result_set_table(result_set, format, &TableOptions::default());
-        println!("{}", rendered);
+        let result = table::render_result_set_table(result_set, format, &table_options);
+        println!("{}", result.output);
         if idx + 1 < display_sets.len() {
             println!();
         }

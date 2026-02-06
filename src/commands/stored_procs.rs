@@ -17,7 +17,7 @@ const LIMIT_MAX: u64 = 100;
 
 pub fn run(args: &CliArgs, cmd: &StoredProcsArgs) -> Result<()> {
     if let Some(proc_name) = cmd.exec.as_deref() {
-        return exec_proc(args, proc_name, cmd.args.as_deref());
+        return exec_proc(args, proc_name, cmd.args.as_deref(), cmd.no_truncate);
     }
 
     list_procs(args, cmd)
@@ -177,13 +177,18 @@ WHERE (@P1 IS NULL OR s.name = @P1)
             limit: page_limit,
         });
     }
-    let rendered = table::render_result_set_table(&result_set, format, &options);
-    println!("{}", rendered);
+    let result = table::render_result_set_table(&result_set, format, &options);
+    println!("{}", result.output);
 
     Ok(())
 }
 
-fn exec_proc(args: &CliArgs, proc_name: &str, raw_args: Option<&str>) -> Result<()> {
+fn exec_proc(
+    args: &CliArgs,
+    proc_name: &str,
+    raw_args: Option<&str>,
+    no_truncate: bool,
+) -> Result<()> {
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
 
@@ -224,12 +229,18 @@ fn exec_proc(args: &CliArgs, proc_name: &str, raw_args: Option<&str>) -> Result<
         return Ok(());
     }
 
+    let table_options = if no_truncate {
+        TableOptions::unlimited()
+    } else {
+        TableOptions::truncated()
+    };
+
     for (idx, result_set) in result_sets.iter().enumerate() {
         if result_sets.len() > 1 {
             println!("Result set {}", idx + 1);
         }
-        let rendered = table::render_result_set_table(result_set, format, &TableOptions::default());
-        println!("{}", rendered);
+        let result = table::render_result_set_table(result_set, format, &table_options);
+        println!("{}", result.output);
         if idx + 1 < result_sets.len() {
             println!();
         }

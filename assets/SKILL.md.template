@@ -20,6 +20,7 @@ sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
 
 - Default output is markdown (token-friendly).
 - For machine-readable results, add `--json`.
+- Output is truncated by default (cells >140 chars, total >25KB). Use `--no-truncate` for full output when you need complete data.
 
 ## Safety
 

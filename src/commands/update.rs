@@ -47,8 +47,8 @@ pub fn run(args: &CliArgs, _cmd: &UpdateArgs) -> Result<()> {
         rows.push(("ReleaseUrl".to_string(), url));
     }
 
-    let rendered = table::render_key_value_table("Update", &rows, format, &TableOptions::default());
-    println!("{}", rendered);
+    let result = table::render_key_value_table("Update", &rows, format, &TableOptions::default());
+    println!("{}", result.output);
 
     if check.update_available {
         println!();

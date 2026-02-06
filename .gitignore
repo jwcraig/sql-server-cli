@@ -5,3 +5,9 @@ tests/test-run-*.log
 .sql-server/
 .sqlserver/
 .private/
+
+.claude/commands/gsd/
+.claude/get-shit-done/
+.codex/commands/
+
+.idea/

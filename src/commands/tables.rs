@@ -238,8 +238,8 @@ WHERE ({} = 1 OR TABLE_TYPE = 'BASE TABLE')
             limit: page_limit,
         });
     }
-    let rendered = table::render_result_set_table(&rows, format, &options);
-    println!("{}", rendered);
+    let result = table::render_result_set_table(&rows, format, &options);
+    println!("{}", result.output);
 
     Ok(())
 }

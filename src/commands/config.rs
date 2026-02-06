@@ -58,9 +58,9 @@ pub fn run(args: &CliArgs) -> Result<()> {
                 ),
             ]);
 
-            let rendered =
+            let result =
                 table::render_key_value_table("Config", &rows, format, &TableOptions::default());
-            writeln!(io::stdout(), "{}", rendered)?;
+            writeln!(io::stdout(), "{}", result.output)?;
         }
     }
 

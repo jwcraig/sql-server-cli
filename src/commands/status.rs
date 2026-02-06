@@ -76,8 +76,8 @@ pub fn run(args: &CliArgs, _cmd: &StatusArgs) -> Result<()> {
         ("Timestamp".to_string(), timestamp),
     ];
 
-    let rendered = table::render_key_value_table("Status", &rows, format, &TableOptions::default());
-    println!("{}", rendered);
+    let result = table::render_key_value_table("Status", &rows, format, &TableOptions::default());
+    println!("{}", result.output);
 
     Ok(())
 }

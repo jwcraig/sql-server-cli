@@ -80,8 +80,8 @@ ORDER BY r.total_elapsed_time DESC, s.session_id;
         return Ok(());
     }
 
-    let rendered = table::render_result_set_table(&result_set, format, &TableOptions::default());
-    println!("{}", rendered);
+    let result = table::render_result_set_table(&result_set, format, &TableOptions::default());
+    println!("{}", result.output);
 
     Ok(())
 }

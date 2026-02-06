@@ -108,6 +108,18 @@ fn columns_json_smoke() {
 }
 
 #[test]
+fn columns_positional_object_smoke() {
+    if !common::integration_enabled() {
+        return;
+    }
+
+    let (schema, table) = fetch_indexed_table();
+    let object = format!("{}.{}", schema, table);
+    let value = common::run_json(["columns", "--json", object.as_str(), "--limit", "1"]);
+    assert!(value.get("columns").is_some());
+}
+
+#[test]
 fn describe_json_smoke() {
     if !common::integration_enabled() {
         return;

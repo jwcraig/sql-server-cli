@@ -124,8 +124,8 @@ ORDER BY i.name, ic.key_ordinal, ic.index_column_id;
     }
 
     let result_set = indexes_to_result_set(&indexes, cmd.show_usage);
-    let rendered = table::render_result_set_table(&result_set, format, &TableOptions::default());
-    println!("{}", rendered);
+    let result = table::render_result_set_table(&result_set, format, &TableOptions::default());
+    println!("{}", result.output);
 
     Ok(())
 }

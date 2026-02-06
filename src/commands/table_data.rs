@@ -139,7 +139,11 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
         return Ok(());
     }
 
-    let mut options = TableOptions::default();
+    let mut options = if cmd.no_truncate {
+        TableOptions::unlimited()
+    } else {
+        TableOptions::truncated()
+    };
     if paging.total > 0 {
         let page_limit = if count == 0 { limit } else { count };
         options.pagination = Some(table::Pagination {
@@ -149,8 +153,8 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
         });
     }
 
-    let rendered = table::render_result_set_table(&result_set, format, &options);
-    println!("{}", rendered);
+    let result = table::render_result_set_table(&result_set, format, &options);
+    println!("{}", result.output);
 
     if let Some(paths) = csv_paths {
         println!("\nCSV written:");

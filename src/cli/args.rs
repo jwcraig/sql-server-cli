@@ -100,6 +100,7 @@ pub struct SqlArgs {
     pub csv: Option<PathBuf>,
     pub dry_run: bool,
     pub continue_on_error: bool,
+    pub no_truncate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,10 +114,12 @@ pub struct TableDataArgs {
     pub offset: Option<u64>,
     pub params: Vec<String>,
     pub csv: Option<PathBuf>,
+    pub no_truncate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnsArgs {
+    pub object: Option<String>,
     pub like: Option<String>,
     pub table: Option<String>,
     pub schema: Option<String>,
@@ -151,6 +154,7 @@ pub struct StoredProcsArgs {
     pub offset: Option<u64>,
     pub exec: Option<String>,
     pub args: Option<String>,
+    pub no_truncate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,6 +279,7 @@ pub fn parse_args() -> CliArgs {
 fn add_global_args(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("config")
+            .short('c')
             .long("config")
             .value_name("PATH")
             .value_hint(ValueHint::FilePath)
@@ -298,6 +303,7 @@ fn add_global_args(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("server")
+            .short('H')
             .long("server")
             .visible_alias("host")
             .value_name("HOST")
@@ -314,6 +320,7 @@ fn add_global_args(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("database")
+            .short('d')
             .long("database")
             .value_name("NAME")
             .global(true)
@@ -321,6 +328,7 @@ fn add_global_args(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("user")
+            .short('u')
             .long("user")
             .value_name("USER")
             .global(true)
@@ -328,6 +336,7 @@ fn add_global_args(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("password")
+            .short('p')
             .long("password")
             .value_name("PASS")
             .global(true)
@@ -478,7 +487,7 @@ fn command_databases(show_all: bool) -> Command {
 
 fn command_tables(show_all: bool) -> Command {
     command_core("tables", "Browse tables/views", &[], show_all)
-        .arg(Arg::new("schema").long("schema").value_name("name"))
+        .arg(Arg::new("schema").short('s').long("schema").value_name("name"))
         .arg(Arg::new("like").long("like").value_name("pattern"))
         .arg(
             Arg::new("include-views")
@@ -504,7 +513,7 @@ fn command_tables(show_all: bool) -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Describe each table (DDL, columns, indexes). Default limit 5, use --limit for more."),
         )
-        .arg(Arg::new("limit").long("limit").value_name("n|all|0"))
+        .arg(Arg::new("limit").short('n').long("limit").value_name("n|all|0"))
         .arg(
             Arg::new("offset")
                 .long("offset")
@@ -526,7 +535,12 @@ fn command_describe(show_all: bool) -> Command {
             .value_name("OBJECT")
             .help("Object name to describe"),
     )
-    .arg(Arg::new("schema").long("schema").value_name("name"))
+    .arg(
+        Arg::new("schema")
+            .short('s')
+            .long("schema")
+            .value_name("name"),
+    )
     .arg(
         Arg::new("type")
             .long("type")
@@ -595,6 +609,7 @@ fn command_sql(show_all: bool) -> Command {
     )
     .arg(
         Arg::new("file")
+            .short('f')
             .long("file")
             .value_name("path")
             .value_hint(ValueHint::FilePath)
@@ -608,12 +623,14 @@ fn command_sql(show_all: bool) -> Command {
     )
     .arg(
         Arg::new("max-rows")
+            .short('n')
             .long("max-rows")
             .value_name("n")
             .value_parser(clap::value_parser!(u64)),
     )
     .arg(
         Arg::new("csv")
+            .short('o')
             .long("csv")
             .value_name("file")
             .value_hint(ValueHint::FilePath),
@@ -628,6 +645,12 @@ fn command_sql(show_all: bool) -> Command {
             .long("continue-on-error")
             .action(ArgAction::SetTrue),
     )
+    .arg(
+        Arg::new("no-truncate")
+            .long("no-truncate")
+            .action(ArgAction::SetTrue)
+            .help("Disable output truncation (default: cells >140 chars, total >25KB)"),
+    )
 }
 
 fn command_table_data(show_all: bool) -> Command {
@@ -637,13 +660,29 @@ fn command_table_data(show_all: bool) -> Command {
         &["data", "head"],
         show_all,
     )
-    .arg(Arg::new("table").long("table").value_name("name"))
-    .arg(Arg::new("schema").long("schema").value_name("name"))
+    .arg(
+        Arg::new("table")
+            .short('t')
+            .long("table")
+            .value_name("name"),
+    )
+    .arg(
+        Arg::new("schema")
+            .short('s')
+            .long("schema")
+            .value_name("name"),
+    )
     .arg(Arg::new("columns").long("columns").value_name("list"))
-    .arg(Arg::new("where").long("where").value_name("expr"))
+    .arg(
+        Arg::new("where")
+            .short('w')
+            .long("where")
+            .value_name("expr"),
+    )
     .arg(Arg::new("order-by").long("order-by").value_name("expr"))
     .arg(
         Arg::new("limit")
+            .short('n')
             .long("limit")
             .value_name("n")
             .value_parser(clap::value_parser!(u64)),
@@ -662,22 +701,45 @@ fn command_table_data(show_all: bool) -> Command {
     )
     .arg(
         Arg::new("csv")
+            .short('o')
             .long("csv")
             .value_name("file")
             .value_hint(ValueHint::FilePath),
+    )
+    .arg(
+        Arg::new("no-truncate")
+            .long("no-truncate")
+            .action(ArgAction::SetTrue)
+            .help("Disable output truncation (default: cells >140 chars, total >25KB)"),
     )
 }
 
 fn command_columns(show_all: bool) -> Command {
     command_core(
         "columns",
-        "Column discovery across tables",
+        "Column discovery across tables, views, and procs (first result set)",
         &["cols", "find-column"],
         show_all,
     )
+    .arg(
+        Arg::new("object")
+            .index(1)
+            .value_name("OBJECT")
+            .help("Table or view name (schema-qualified allowed)"),
+    )
     .arg(Arg::new("like").long("like").value_name("pattern"))
-    .arg(Arg::new("table").long("table").value_name("pattern"))
-    .arg(Arg::new("schema").long("schema").value_name("name"))
+    .arg(
+        Arg::new("table")
+            .short('t')
+            .long("table")
+            .value_name("pattern"),
+    )
+    .arg(
+        Arg::new("schema")
+            .short('s')
+            .long("schema")
+            .value_name("name"),
+    )
     .arg(
         Arg::new("include-views")
             .long("include-views")
@@ -704,8 +766,18 @@ fn command_update(show_all: bool) -> Command {
 
 fn command_indexes(show_all: bool) -> Command {
     command_advanced("indexes", "Table index inspection", &[], show_all)
-        .arg(Arg::new("table").long("table").value_name("name"))
-        .arg(Arg::new("schema").long("schema").value_name("name"))
+        .arg(
+            Arg::new("table")
+                .short('t')
+                .long("table")
+                .value_name("name"),
+        )
+        .arg(
+            Arg::new("schema")
+                .short('s')
+                .long("schema")
+                .value_name("name"),
+        )
         .arg(
             Arg::new("show-usage")
                 .long("show-usage")
@@ -721,8 +793,18 @@ fn command_foreign_keys(show_all: bool) -> Command {
         &["fks", "fk"],
         show_all,
     )
-    .arg(Arg::new("table").long("table").value_name("name"))
-    .arg(Arg::new("schema").long("schema").value_name("name"))
+    .arg(
+        Arg::new("table")
+            .short('t')
+            .long("table")
+            .value_name("name"),
+    )
+    .arg(
+        Arg::new("schema")
+            .short('s')
+            .long("schema")
+            .value_name("name"),
+    )
     .arg(Arg::new("direction").long("direction").value_name("mode"))
 }
 
@@ -733,7 +815,12 @@ fn command_stored_procs(show_all: bool) -> Command {
         &["procs", "stored-procedures"],
         show_all,
     )
-    .arg(Arg::new("schema").long("schema").value_name("name"))
+    .arg(
+        Arg::new("schema")
+            .short('s')
+            .long("schema")
+            .value_name("name"),
+    )
     .arg(Arg::new("name").long("name").value_name("pattern"))
     .arg(
         Arg::new("include-system")
@@ -755,6 +842,12 @@ fn command_stored_procs(show_all: bool) -> Command {
     )
     .arg(Arg::new("exec").long("exec").value_name("proc"))
     .arg(Arg::new("args").long("args").value_name("text"))
+    .arg(
+        Arg::new("no-truncate")
+            .long("no-truncate")
+            .action(ArgAction::SetTrue)
+            .help("Disable output truncation (default: cells >140 chars, total >25KB)"),
+    )
 }
 
 fn command_sessions(show_all: bool) -> Command {
@@ -1042,6 +1135,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             csv: sub_m.get_one::<String>("csv").map(PathBuf::from),
             dry_run: sub_m.get_flag("dry-run"),
             continue_on_error: sub_m.get_flag("continue-on-error"),
+            no_truncate: sub_m.get_flag("no-truncate"),
         }),
         Some(("table-data", sub_m)) => CommandKind::TableData(TableDataArgs {
             table: sub_m.get_one::<String>("table").cloned(),
@@ -1056,8 +1150,10 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
                 .map(|values| values.cloned().collect())
                 .unwrap_or_default(),
             csv: sub_m.get_one::<String>("csv").map(PathBuf::from),
+            no_truncate: sub_m.get_flag("no-truncate"),
         }),
         Some(("columns", sub_m)) => CommandKind::Columns(ColumnsArgs {
+            object: sub_m.get_one::<String>("object").cloned(),
             like: sub_m.get_one::<String>("like").cloned(),
             table: sub_m.get_one::<String>("table").cloned(),
             schema: sub_m.get_one::<String>("schema").cloned(),
@@ -1084,6 +1180,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             offset: sub_m.get_one::<u64>("offset").copied(),
             exec: sub_m.get_one::<String>("exec").cloned(),
             args: sub_m.get_one::<String>("args").cloned(),
+            no_truncate: sub_m.get_flag("no-truncate"),
         }),
         Some(("sessions", sub_m)) => CommandKind::Sessions(SessionsArgs {
             database: sub_m.get_one::<String>("database").cloned(),

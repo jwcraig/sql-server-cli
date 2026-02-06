@@ -19,6 +19,7 @@ const ALLOWED_PROCS: &[&str] = &[
     "sp_databases",
     "sp_datatype_info",
     "sp_special_columns",
+    "sp_describe_first_result_set",
 ];
 
 pub fn allowed_procedures() -> Vec<&'static str> {

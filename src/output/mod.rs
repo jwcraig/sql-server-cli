@@ -7,7 +7,7 @@ use std::io::IsTerminal;
 use crate::cli::OutputFlags;
 use crate::config::{OutputFormat, SettingsResolved};
 
-pub use table::TableOptions;
+pub use table::{RenderResult, TableOptions, TruncationInfo};
 
 pub fn select_format(flags: &OutputFlags, settings: &SettingsResolved) -> OutputFormat {
     if flags.json {

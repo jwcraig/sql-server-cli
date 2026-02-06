@@ -696,11 +696,10 @@ async fn describe_procedure(
         if !parameters.is_empty() {
             output.push_str("Parameters\n");
             let params_display = parameters_to_result_set(&parameters);
-            output.push_str(&table::render_result_set_table(
-                &params_display,
-                format,
-                &TableOptions::default(),
-            ));
+            output.push_str(
+                &table::render_result_set_table(&params_display, format, &TableOptions::default())
+                    .output,
+            );
         } else {
             output.push_str("(no parameters)\n");
         }
@@ -787,11 +786,10 @@ WHERE o.name = @P1
         if !parameters.is_empty() {
             output.push_str("Parameters\n");
             let params_display = parameters_to_result_set(&parameters);
-            output.push_str(&table::render_result_set_table(
-                &params_display,
-                format,
-                &TableOptions::default(),
-            ));
+            output.push_str(
+                &table::render_result_set_table(&params_display, format, &TableOptions::default())
+                    .output,
+            );
         } else {
             output.push_str("(no parameters)\n");
         }
@@ -1414,50 +1412,40 @@ fn format_table_output(
         }
 
         output.push_str("Columns\n");
-        output.push_str(&table::render_result_set_table(
-            columns_rs,
-            format,
-            &TableOptions::default(),
-        ));
+        output.push_str(
+            &table::render_result_set_table(columns_rs, format, &TableOptions::default()).output,
+        );
 
         if include_indexes && !indexes.is_empty() {
             output.push_str("\nIndexes\n");
             let rs = indexes_to_result_set(indexes);
-            output.push_str(&table::render_result_set_table(
-                &rs,
-                format,
-                &TableOptions::default(),
-            ));
+            output.push_str(
+                &table::render_result_set_table(&rs, format, &TableOptions::default()).output,
+            );
         }
 
         if include_fks && !fks.is_empty() {
             output.push_str("\nForeign Keys\n");
             let rs = fks_to_result_set(fks);
-            output.push_str(&table::render_result_set_table(
-                &rs,
-                format,
-                &TableOptions::default(),
-            ));
+            output.push_str(
+                &table::render_result_set_table(&rs, format, &TableOptions::default()).output,
+            );
         }
 
         if include_constraints && !constraints.is_empty() {
             output.push_str("\nConstraints\n");
             let rs = constraints_to_result_set(constraints);
-            output.push_str(&table::render_result_set_table(
-                &rs,
-                format,
-                &TableOptions::default(),
-            ));
+            output.push_str(
+                &table::render_result_set_table(&rs, format, &TableOptions::default()).output,
+            );
         }
 
         if include_usage {
             output.push_str("\nUsage\n");
             if let Some(usage) = usage_rs {
-                output.push_str(&table::render_result_set_table(
-                    usage,
-                    format,
-                    &TableOptions::default(),
-                ));
+                output.push_str(
+                    &table::render_result_set_table(usage, format, &TableOptions::default()).output,
+                );
             } else {
                 output.push_str("(no dependent objects found)\n");
             }
@@ -1465,11 +1453,9 @@ fn format_table_output(
 
         if let Some(triggers) = triggers_rs {
             output.push_str("\nTriggers\n");
-            output.push_str(&table::render_result_set_table(
-                triggers,
-                format,
-                &TableOptions::default(),
-            ));
+            output.push_str(
+                &table::render_result_set_table(triggers, format, &TableOptions::default()).output,
+            );
         }
     }
 
@@ -1518,20 +1504,16 @@ fn format_view_output(
         }
 
         output.push_str("Columns\n");
-        output.push_str(&table::render_result_set_table(
-            columns_rs,
-            format,
-            &TableOptions::default(),
-        ));
+        output.push_str(
+            &table::render_result_set_table(columns_rs, format, &TableOptions::default()).output,
+        );
 
         if include_usage {
             output.push_str("\nUsage\n");
             if let Some(usage) = usage_rs {
-                output.push_str(&table::render_result_set_table(
-                    usage,
-                    format,
-                    &TableOptions::default(),
-                ));
+                output.push_str(
+                    &table::render_result_set_table(usage, format, &TableOptions::default()).output,
+                );
             } else {
                 output.push_str("(no dependent objects found)\n");
             }

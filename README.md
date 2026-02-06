@@ -303,7 +303,7 @@ Environment variables override values from the config file when no explicit `--p
 | `describe`   | Any object: table, view, trigger, proc, function     |
 | `sql`        | Execute read-only SQL                                |
 | `table-data` | Sample rows from a table                             |
-| `columns`    | Find columns across tables                           |
+| `columns`    | Find columns across tables/views/procs (first result set) |
 
 **Advanced** (shown in `help --all`):
 
