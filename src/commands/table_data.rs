@@ -1,9 +1,10 @@
 use anyhow::{Result, anyhow};
 use serde_json::json;
+use std::io::IsTerminal;
 use tiberius::Query;
 
 use crate::cli::{CliArgs, TableDataArgs};
-use crate::commands::{common, paging, sql_utils};
+use crate::commands::{common, object_lookup, paging, sql_utils};
 use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
@@ -14,17 +15,18 @@ const LIMIT_DEFAULT: u64 = 25;
 const LIMIT_MAX: u64 = 500;
 
 pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
-    let table_raw = cmd
-        .table
-        .as_deref()
-        .ok_or_else(|| anyhow!("Missing required --table"))?;
+    let table_raw = cmd.table.as_deref().ok_or_else(|| {
+        anyhow!("Missing table name. Use --table <name> or pass <OBJECT> positionally.")
+    })?;
     let (table_name, schema_from_name) = common::normalize_object_input(table_raw);
 
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
 
     let schema_hint = cmd.schema.as_deref().or(schema_from_name.as_deref());
-    let (schema, table_name) = resolve_schema_table(schema_hint, &table_name, &resolved);
+    let allow_prompt = !matches!(format, OutputFormat::Json)
+        && std::io::stdin().is_terminal()
+        && std::io::stderr().is_terminal();
 
     let limit = common::parse_limit(cmd.limit, LIMIT_DEFAULT, LIMIT_MAX);
     let offset = common::parse_offset(cmd.offset);
@@ -39,79 +41,103 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
     let params = sql_utils::parse_params(&cmd.params)
         .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
 
-    let (result_set, total, output_columns, csv_paths) = tokio::runtime::Runtime::new()?.block_on(async {
-        let mut client = client::connect(&resolved.connection).await?;
+    let requested_table_name = table_name.clone();
+    let (result_set, total, output_columns, schema, table_name, csv_paths) =
+        tokio::runtime::Runtime::new()?.block_on(async {
+            let mut client = client::connect(&resolved.connection).await?;
+            let (schema, table_name) = object_lookup::resolve_schema_for_object(
+                &mut client,
+                &resolved,
+                &requested_table_name,
+                schema_hint,
+                object_lookup::LookupScope::TablesAndViews,
+                "table",
+                allow_prompt,
+            )
+            .await?;
 
-        let column_tokens = parse_columns(columns_raw.as_deref());
-        let (select_list, output_columns) = if column_tokens.len() == 1 && column_tokens[0] == "*" {
-            let names = fetch_column_names(&mut client, &schema, &table_name).await?;
-            let list = names
-                .iter()
-                .map(|name| quote_identifier(name))
-                .collect::<Vec<_>>()
-                .join(", ");
-            (list, names)
-        } else {
-            let list = column_tokens.join(", ");
-            (list, column_tokens)
-        };
+            let column_tokens = parse_columns(columns_raw.as_deref());
+            let (select_list, output_columns) =
+                if column_tokens.len() == 1 && column_tokens[0] == "*" {
+                    let names = fetch_column_names(&mut client, &schema, &table_name).await?;
+                    let list = names
+                        .iter()
+                        .map(|name| quote_identifier(name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    (list, names)
+                } else {
+                    let list = column_tokens.join(", ");
+                    (list, column_tokens)
+                };
 
-        let replaced_where = where_clause
-            .as_deref()
-            .map(|clause| sql_utils::replace_named_params(clause, &params, 1));
-        let where_sql = replaced_where
-            .as_ref()
-            .map(|clause| format!("WHERE {}", clause))
-            .unwrap_or_default();
+            let replaced_where = where_clause
+                .as_deref()
+                .map(|clause| sql_utils::replace_named_params(clause, &params, 1));
+            let where_sql = replaced_where
+                .as_ref()
+                .map(|clause| format!("WHERE {}", clause))
+                .unwrap_or_default();
 
-        let param_count = params.len();
-        let offset_placeholder = format!("@P{}", param_count + 1);
-        let limit_placeholder = format!("@P{}", param_count + 2);
+            let param_count = params.len();
+            let offset_placeholder = format!("@P{}", param_count + 1);
+            let limit_placeholder = format!("@P{}", param_count + 2);
 
-        let qualified_table = format!(
-            "{}.{}",
-            quote_identifier(&schema),
-            quote_identifier(&table_name)
-        );
-        let sql = format!(
-            "SELECT {select_list} FROM {qualified_table} {where_sql} ORDER BY {order_by} OFFSET {offset_placeholder} ROWS FETCH NEXT {limit_placeholder} ROWS ONLY;",
-        );
+            let qualified_table = format!(
+                "{}.{}",
+                quote_identifier(&schema),
+                quote_identifier(&table_name)
+            );
+            let sql = format!(
+                "SELECT {select_list} FROM {qualified_table} {where_sql} ORDER BY {order_by} OFFSET {offset_placeholder} ROWS FETCH NEXT {limit_placeholder} ROWS ONLY;",
+            );
 
-        let mut query = Query::new(sql);
-        for param in &params {
-            query.bind(param.value.as_str());
-        }
-        query.bind(offset as i64);
-        query.bind(limit as i64);
-        let result_sets = executor::run_query(query, &mut client).await?;
-        let result_set = result_sets.into_iter().next().unwrap_or_default();
+            let mut query = Query::new(sql);
+            for param in &params {
+                query.bind(param.value.as_str());
+            }
+            query.bind(offset as i64);
+            query.bind(limit as i64);
+            let result_sets = executor::run_query(query, &mut client).await?;
+            let result_set = result_sets.into_iter().next().unwrap_or_default();
 
-        let count_sql = format!("SELECT COUNT(*) AS total FROM {qualified_table} {where_sql};");
-        let mut count_query = Query::new(count_sql);
-        for param in &params {
-            count_query.bind(param.value.as_str());
-        }
-        let count_sets = executor::run_query(count_query, &mut client).await?;
-        let total = count_sets
-            .first()
-            .and_then(|rs| rs.rows.first())
-            .and_then(|row| row.first())
-            .and_then(|value| match value {
-                crate::db::types::Value::Int(v) => (*v).try_into().ok(),
-                crate::db::types::Value::Float(v) => Some(*v as u64),
-                crate::db::types::Value::Text(s) => s.parse::<u64>().ok(),
-                _ => None,
-            })
-            .unwrap_or(result_set.rows.len() as u64);
+            let count_sql = format!("SELECT COUNT(*) AS total FROM {qualified_table} {where_sql};");
+            let mut count_query = Query::new(count_sql);
+            for param in &params {
+                count_query.bind(param.value.as_str());
+            }
+            let count_sets = executor::run_query(count_query, &mut client).await?;
+            let total = count_sets
+                .first()
+                .and_then(|rs| rs.rows.first())
+                .and_then(|row| row.first())
+                .and_then(|value| match value {
+                    crate::db::types::Value::Int(v) => (*v).try_into().ok(),
+                    crate::db::types::Value::Float(v) => Some(*v as u64),
+                    crate::db::types::Value::Text(s) => s.parse::<u64>().ok(),
+                    _ => None,
+                })
+                .unwrap_or(result_set.rows.len() as u64);
 
-        let csv_paths = if let Some(path) = cmd.csv.as_ref() {
-            Some(csv::write_result_sets(path, std::slice::from_ref(&result_set), resolved.settings.output.csv.multi_result_naming)?)
-        } else {
-            None
-        };
+            let csv_paths = if let Some(path) = cmd.csv.as_ref() {
+                Some(csv::write_result_sets(
+                    path,
+                    std::slice::from_ref(&result_set),
+                    resolved.settings.output.csv.multi_result_naming,
+                )?)
+            } else {
+                None
+            };
 
-        Ok::<_, anyhow::Error>((result_set, total, output_columns, csv_paths))
-    })?;
+            Ok::<_, anyhow::Error>((
+                result_set,
+                total,
+                output_columns,
+                schema,
+                table_name,
+                csv_paths,
+            ))
+        })?;
 
     let count = result_set.rows.len() as u64;
     let paging = paging::build_paging(total, count, offset, limit);
@@ -164,25 +190,6 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn resolve_schema_table(
-    schema: Option<&str>,
-    table: &str,
-    resolved: &crate::config::ResolvedConfig,
-) -> (String, String) {
-    if schema.is_none() {
-        if let Some((left, right)) = table.split_once('.') {
-            return (left.to_string(), right.to_string());
-        }
-    }
-
-    let schema = schema
-        .map(|s| s.to_string())
-        .or_else(|| resolved.connection.default_schemas.first().cloned())
-        .unwrap_or_else(|| "dbo".to_string());
-
-    (schema, table.to_string())
 }
 
 fn parse_columns(raw: Option<&str>) -> Vec<String> {

@@ -11,6 +11,7 @@ mod help;
 mod indexes;
 mod init;
 mod integrations;
+mod object_lookup;
 mod paging;
 mod query_stats;
 mod sessions;

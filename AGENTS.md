@@ -214,7 +214,8 @@ pub fn calculate_total(items: &[Item], tax_rate: f64) -> Result<f64, Calculation
 
 ## Local build + install (for users to verify changes)
 
-After tests pass, build and install locally so the user can run the updated binary:
+After tests pass, you MUST build and install locally so the user can run the updated binary.
+This is required whenever you create a new build in this repo:
 
 ```bash
 cargo build --release

@@ -1,10 +1,11 @@
 use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::io::IsTerminal;
 use tiberius::Query;
 
 use crate::cli::{CliArgs, ForeignKeysArgs};
-use crate::commands::common;
+use crate::commands::{common, object_lookup};
 use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
@@ -42,11 +43,24 @@ pub fn run(args: &CliArgs, cmd: &ForeignKeysArgs) -> Result<()> {
 
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
-    let schema = cmd.schema.clone().or(schema_from_name);
+    let schema_hint = cmd.schema.as_deref().or(schema_from_name.as_deref());
+    let allow_prompt = !matches!(format, OutputFormat::Json)
+        && std::io::stdin().is_terminal()
+        && std::io::stderr().is_terminal();
 
-    let table_name_param = table_name.clone();
+    let requested_table_name = table_name.clone();
     let fks = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;
+        let (schema, table_name) = object_lookup::resolve_schema_for_object(
+            &mut client,
+            &resolved,
+            &requested_table_name,
+            schema_hint,
+            object_lookup::LookupScope::TablesOnly,
+            "table",
+            allow_prompt,
+        )
+        .await?;
         let sql = r#"
 SELECT
     fk.name AS fk_name,
@@ -76,8 +90,8 @@ ORDER BY fk.name, fkc.constraint_column_id;
 "#;
 
         let mut query = Query::new(sql);
-        query.bind(table_name_param.as_str());
-        query.bind(schema.as_deref());
+        query.bind(table_name.as_str());
+        query.bind(Some(schema.as_str()));
         query.bind(if direction == "outbound" || direction == "both" { 1i32 } else { 0i32 });
         query.bind(if direction == "inbound" || direction == "both" { 1i32 } else { 0i32 });
         let result_sets = executor::run_query(query, &mut client).await?;
@@ -95,7 +109,7 @@ ORDER BY fk.name, fkc.constraint_column_id;
             let update_rule = value_to_string(row.get(7));
             let delete_rule = value_to_string(row.get(8));
 
-            let is_outbound = parent_table.eq_ignore_ascii_case(table_name_param.as_str());
+            let is_outbound = parent_table.eq_ignore_ascii_case(table_name.as_str());
             let entry = grouped.entry(fk_name.clone()).or_insert_with(|| ForeignKeyInfo {
                 name: fk_name.clone(),
                 direction: if is_outbound { "outbound".to_string() } else { "inbound".to_string() },
@@ -118,12 +132,13 @@ ORDER BY fk.name, fkc.constraint_column_id;
             }
         }
 
-        Ok::<_, anyhow::Error>(grouped.into_values().collect::<Vec<_>>())
+        Ok::<_, anyhow::Error>((schema, table_name, grouped.into_values().collect::<Vec<_>>()))
     })?;
+    let (resolved_schema, resolved_table_name, fks) = fks;
 
     if matches!(format, OutputFormat::Json) {
         let payload = json!({
-            "table": { "schema": schema.clone().unwrap_or_else(|| "dbo".to_string()), "name": table_name },
+            "table": { "schema": resolved_schema, "name": resolved_table_name },
             "direction": direction,
             "foreignKeys": fks.iter().map(fk_to_json).collect::<Vec<_>>(),
         });

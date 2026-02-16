@@ -97,6 +97,7 @@ sscli tables                              # List tables
 sscli tables --like "%User%" --describe   # Describe all User-related tables
 sscli describe Users                      # DDL, columns, indexes, triggers
 sscli describe T_Users_Trig               # Trigger definition (auto-detected)
+sscli table-data equipment                # Browse rows (schema auto-resolved; prompts on conflicts)
 sscli sql "SELECT TOP 5 * FROM Users"
 sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
 sscli update                              # Check for new releases (alias: sscli upgrade)

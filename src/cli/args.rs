@@ -661,6 +661,12 @@ fn command_table_data(show_all: bool) -> Command {
         show_all,
     )
     .arg(
+        Arg::new("object")
+            .index(1)
+            .value_name("OBJECT")
+            .help("Table or view name (schema-qualified allowed)"),
+    )
+    .arg(
         Arg::new("table")
             .short('t')
             .long("table")
@@ -1138,7 +1144,10 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             no_truncate: sub_m.get_flag("no-truncate"),
         }),
         Some(("table-data", sub_m)) => CommandKind::TableData(TableDataArgs {
-            table: sub_m.get_one::<String>("table").cloned(),
+            table: sub_m
+                .get_one::<String>("table")
+                .cloned()
+                .or_else(|| sub_m.get_one::<String>("object").cloned()),
             schema: sub_m.get_one::<String>("schema").cloned(),
             columns: sub_m.get_one::<String>("columns").cloned(),
             where_clause: sub_m.get_one::<String>("where").cloned(),
@@ -1279,4 +1288,45 @@ fn parse_integrations(matches: &ArgMatches) -> IntegrationsArgs {
     };
 
     IntegrationsArgs { command }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandKind, build_cli, parse_matches};
+
+    #[test]
+    fn table_data_accepts_positional_object_name() {
+        let matches = build_cli(false)
+            .try_get_matches_from(["sscli", "table-data", "equipment"])
+            .expect("clap should parse positional table-data object");
+        let args = parse_matches(&matches);
+
+        match args.command {
+            CommandKind::TableData(cmd) => {
+                assert_eq!(cmd.table.as_deref(), Some("equipment"));
+            }
+            other => panic!("expected table-data command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn table_data_prefers_flag_over_positional_object_name() {
+        let matches = build_cli(false)
+            .try_get_matches_from([
+                "sscli",
+                "table-data",
+                "positional_name",
+                "--table",
+                "flag_name",
+            ])
+            .expect("clap should parse table-data with positional and --table");
+        let args = parse_matches(&matches);
+
+        match args.command {
+            CommandKind::TableData(cmd) => {
+                assert_eq!(cmd.table.as_deref(), Some("flag_name"));
+            }
+            other => panic!("expected table-data command, got: {:?}", other),
+        }
+    }
 }
