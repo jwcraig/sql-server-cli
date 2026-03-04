@@ -354,7 +354,10 @@ jobs:
         run: |
           set -euo pipefail
           expected="${{ needs.release.outputs.version }}"
-          crates_version="$(curl -fsSL https://crates.io/api/v1/crates/sscli | jq -r '.crate.max_version')"
+          crates_version="$(
+            curl -fsSL -H "User-Agent: sscli-release-verifier" https://crates.io/api/v1/crates/sscli \
+              | jq -r '.crate.max_version'
+          )"
 
           if [ "$crates_version" != "$expected" ]; then
             echo "crates.io version mismatch: expected ${expected}, got ${crates_version}"
