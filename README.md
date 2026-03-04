@@ -124,6 +124,8 @@ scoop install sscli
 curl -sSL https://raw.githubusercontent.com/jwcraig/sql-server-cli/main/install.sh | sh
 ```
 
+The installer verifies the downloaded artifact against the release `checksums-sha256.txt`.
+
 ### Cargo binstall (fast, no compilation)
 
 ```bash

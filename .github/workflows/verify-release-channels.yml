@@ -1,0 +1,91 @@
+name: Verify Release Channels
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: '19 4 * * *'
+
+jobs:
+  verify:
+    name: Verify Release Channels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve latest release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(curl -fsSL https://api.github.com/repos/jwcraig/sql-server-cli/releases/latest | jq -r '.tag_name')"
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Unable to resolve latest release tag."
+            exit 1
+          fi
+
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          checksum_url="https://github.com/jwcraig/sql-server-cli/releases/download/v${version}/checksums-sha256.txt"
+          curl -fsSL "$checksum_url" -o checksums-sha256.txt
+
+      - name: Verify Homebrew formula
+        shell: bash
+        env:
+          REPO_SLUG: jwcraig/sql-server-cli
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/jwcraig/homebrew-tap.git homebrew-tap
+          cp homebrew-tap/Formula/sscli.rb homebrew-tap/Formula/sscli.rb.before
+
+          ./scripts/update_homebrew_formula_from_release.sh \
+            "${{ steps.release.outputs.version }}" \
+            "homebrew-tap/Formula/sscli.rb" \
+            "checksums-sha256.txt"
+
+          if ! cmp -s homebrew-tap/Formula/sscli.rb.before homebrew-tap/Formula/sscli.rb; then
+            echo "Homebrew formula drift detected for ${{ steps.release.outputs.tag }}."
+            git -C homebrew-tap --no-pager diff -- Formula/sscli.rb
+            exit 1
+          fi
+
+      - name: Verify Scoop manifest
+        shell: bash
+        env:
+          REPO_SLUG: jwcraig/sql-server-cli
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/jwcraig/scoop-bucket.git scoop-bucket
+          cp scoop-bucket/sscli.json scoop-bucket/sscli.json.before
+
+          ./scripts/update_scoop_manifest_from_release.sh \
+            "${{ steps.release.outputs.version }}" \
+            "scoop-bucket/sscli.json" \
+            "checksums-sha256.txt"
+
+          if ! cmp -s scoop-bucket/sscli.json.before scoop-bucket/sscli.json; then
+            echo "Scoop manifest drift detected for ${{ steps.release.outputs.tag }}."
+            diff -u scoop-bucket/sscli.json.before scoop-bucket/sscli.json || true
+            exit 1
+          fi
+
+      - name: Verify crates.io version
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ steps.release.outputs.version }}"
+          crates_version="$(curl -fsSL https://crates.io/api/v1/crates/sscli | jq -r '.crate.max_version')"
+          if [ "$crates_version" != "$expected" ]; then
+            echo "crates.io version mismatch: expected ${expected}, got ${crates_version}"
+            exit 1
+          fi

@@ -1,0 +1,88 @@
+name: Sync Scoop Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (for example: 0.1.11 or v0.1.11)"
+        required: true
+        type: string
+
+jobs:
+  sync-scoop:
+    name: Sync Scoop Manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configuration
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.SCOOP_BUCKET_TOKEN }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "SCOOP_BUCKET_TOKEN is not set; skipping Scoop manifest update."
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize version
+        id: version
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="${{ github.event.inputs.version }}"
+          normalized="${raw#v}"
+          echo "version=${normalized}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Download release checksums
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          checksum_url="https://github.com/jwcraig/sql-server-cli/releases/download/v${version}/checksums-sha256.txt"
+          curl -fsSL "$checksum_url" -o checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Checkout scoop bucket
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: jwcraig/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+
+      - name: Update and verify manifest
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          REPO_SLUG: jwcraig/sql-server-cli
+        run: |
+          set -euo pipefail
+          ./scripts/update_scoop_manifest_from_release.sh \
+            "${{ steps.version.outputs.version }}" \
+            "scoop-bucket/sscli.json" \
+            "checksums-sha256.txt"
+
+      - name: Commit and push
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add sscli.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "sscli ${{ steps.version.outputs.version }}"
+          git push
