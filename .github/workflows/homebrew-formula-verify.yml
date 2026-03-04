@@ -1,0 +1,69 @@
+name: Verify Homebrew Formula
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+
+jobs:
+  verify-homebrew-formula:
+    name: Verify Homebrew Formula
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve latest release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(curl -fsSL https://api.github.com/repos/jwcraig/sql-server-cli/releases/latest | jq -r '.tag_name')"
+          if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
+            echo "Unable to resolve latest release tag."
+            exit 1
+          fi
+
+          version="${tag#v}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          checksum_url="https://github.com/jwcraig/sql-server-cli/releases/download/v${version}/checksums-sha256.txt"
+          curl -fsSL "$checksum_url" -o checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: jwcraig/homebrew-tap
+          path: homebrew-tap
+
+      - name: Verify formula matches release checksums
+        shell: bash
+        env:
+          REPO_SLUG: jwcraig/sql-server-cli
+        run: |
+          set -euo pipefail
+          cp homebrew-tap/Formula/sscli.rb homebrew-tap/Formula/sscli.rb.before
+
+          ./scripts/update_homebrew_formula_from_release.sh \
+            "${{ steps.release.outputs.version }}" \
+            "homebrew-tap/Formula/sscli.rb" \
+            "checksums-sha256.txt"
+
+          if ! cmp -s homebrew-tap/Formula/sscli.rb.before homebrew-tap/Formula/sscli.rb; then
+            echo "Homebrew formula is out of sync with release checksums for ${{ steps.release.outputs.tag }}."
+            git -C homebrew-tap --no-pager diff -- Formula/sscli.rb
+            exit 1
+          fi
+
+          echo "Homebrew formula matches release checksums for ${{ steps.release.outputs.tag }}."

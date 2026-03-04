@@ -1,0 +1,88 @@
+name: Sync Homebrew Formula
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example: 0.1.11 or v0.1.11)
+        required: true
+        type: string
+
+jobs:
+  sync-homebrew:
+    name: Sync Homebrew Formula
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configuration
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "HOMEBREW_TAP_TOKEN is not set; skipping Homebrew formula update."
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize version
+        id: version
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="${{ github.event.inputs.version }}"
+          normalized="${raw#v}"
+          echo "version=${normalized}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Download release checksums
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          checksum_url="https://github.com/jwcraig/sql-server-cli/releases/download/v${version}/checksums-sha256.txt"
+          curl -fsSL "$checksum_url" -o checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Checkout homebrew tap
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: jwcraig/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update and verify Homebrew formula
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          REPO_SLUG: jwcraig/sql-server-cli
+        run: |
+          set -euo pipefail
+          ./scripts/update_homebrew_formula_from_release.sh \
+            "${{ steps.version.outputs.version }}" \
+            "homebrew-tap/Formula/sscli.rb" \
+            "checksums-sha256.txt"
+
+      - name: Commit and push
+        if: ${{ steps.gate.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Formula/sscli.rb
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "sscli ${{ steps.version.outputs.version }}"
+          git push
