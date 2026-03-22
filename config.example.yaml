@@ -12,10 +12,6 @@
 defaultProfile: default
 
 settings:
-  # When true, sscli allows write operations by default (dangerous).
-  # You can still use `--allow-write` on a per-command basis.
-  allowWriteDefault: false
-
   output:
     # Output format when no explicit flag is used.
     # Values: pretty | markdown | json
@@ -45,8 +41,6 @@ profiles:
     trustCert: true
     timeout: 30000
     defaultSchemas: [dbo]
-    settings:
-      allowWriteDefault: false
 
   # Example second profile:
   # staging:

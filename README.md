@@ -9,9 +9,17 @@ run SQL, and export results.
 
 `sql` is the canonical raw-SQL surface in this project.
 
-Current releases still enforce read-only behavior by default for `sscli sql`
-unless you pass `--allow-write`, but the product direction is to make `sql`
-the primary raw SQL entry point rather than pushing users back to `sqlcmd`.
+You can run raw SQL either with the explicit subcommand:
+
+```bash
+sscli sql "SELECT 1"
+```
+
+or with the top-level shorthand:
+
+```bash
+sscli "SELECT 1"
+```
 
 For configuration, prefer explicit `--env-file` over relying on ambient `.env`
 files in the working directory.
@@ -38,8 +46,7 @@ structured, repeatable automation:
 - **Schema discovery is manual**: you end up writing catalog queries (`sys.tables`, `INFORMATION_SCHEMA`, etc.)
   instead of calling purpose-built primitives like `sscli tables`, `sscli describe`, and `sscli columns`.
 - **Structured SQL workflows**: `sscli` keeps raw SQL, schema discovery, and machine-readable output in
-  one tool. Current releases still require `--allow-write` for mutations, but the long-term direction is
-  to make `sql` the main raw-SQL surface rather than forcing fallbacks to `sqlcmd`.
+  one tool, so agents do not have to switch between `sqlcmd` for execution and a second tool for inspection.
 - **More setup friction**: `sqlcmd` is typically installed via Microsoft tooling and may require ODBC drivers
   depending on platform/CI image; sscli is a single binary with config + env var discovery built in.
 - **No agent integration**: sscli can install a reusable skill/extension so agents "know the tool" without you
@@ -112,13 +119,11 @@ sscli describe Users                      # DDL, columns, indexes, triggers
 sscli describe T_Users_Trig               # Trigger definition (auto-detected)
 sscli table-data equipment                # Browse rows (schema auto-resolved; prompts on conflicts)
 sscli sql "SELECT TOP 5 * FROM Users"
+sscli "SELECT COUNT(*) FROM Users"        # Top-level shorthand for inline SQL
 sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
+cat patch.sql | sscli sql --stdin         # Pipe a script on stdin
 sscli update                              # Check for new releases (alias: sscli upgrade)
 ```
-
-Direction note: `sscli sql ...` is the canonical form in docs. A bare shorthand
-such as `sscli "SELECT 1"` is planned but is not implemented in the current
-release.
 
 ## Installation
 
@@ -221,9 +226,8 @@ The installed skill file tells agents:
 - When to use sscli (database inspection, schema discovery, raw SQL execution)
 - Available commands and their purpose
 - Output preferences (markdown for context efficiency, `--json` for structured data)
-- Current transition state: today's releases still use read-only-by-default for
-  `sscli sql`, but docs and examples should teach `sql` as the main raw-SQL
-  surface
+- `sql` as the main raw-SQL surface, with top-level shorthand for simple inline
+  queries
 
 ## Configuration
 
@@ -288,11 +292,9 @@ For a fully commented example (including `settings.output.*`, `timeout`, and `de
 
 Environment variables override values from the config file when no explicit `--profile` was passed. If you pass `--profile <name>`, the profile values win over env vars (flags still win over both).
 
-**`.env` file support:** current releases automatically load a `.env` file from
-the current directory if present, reading any of the supported variables listed
-below. Prefer `--env-file` to make the source of configuration explicit, for
-example `--env-file .env.dev`. The planned direction is to require explicit
-`--env-file` instead of relying on ambient cwd `.env` discovery.
+**`.env` file support:** use `--env-file` to load environment variables from a
+specific file, for example `--env-file .env.dev`. `sscli` does not implicitly
+load `.env` from the current working directory.
 
 | Purpose                  | Environment variables (first match wins)                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
@@ -359,19 +361,15 @@ JSON output emits exactly one object to stdout. Errors go to stderr.
 
 ## Safety
 
-Current releases still enforce read-only mode by default for `sscli sql`:
-
-- **Allowed:** SELECT, WITH (CTEs), whitelisted stored procedures
-- **Blocked:** INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, MERGE, etc.
-
-Use `--allow-write` when you intentionally need mutations today.
-
-Project direction:
-
 - keep `sql` as the canonical raw-SQL command
-- reduce unnecessary friction that pushes users back to `sqlcmd`
+- support full SQL execution, including file/stdin-driven scripts
+- keep the existing profile/config connection model
+- prefer explicit `--env-file` over ambient cwd configuration
 - prefer lightweight safety rails and explicit target visibility over hidden
   parser restrictions
+
+If you need a locked-down distribution, maintain a custom build or wrapper that
+strips write capability. The shipped tool is intended to be full-capability.
 
 ## JSON Contract (v1)
 

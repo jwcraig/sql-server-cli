@@ -28,7 +28,7 @@ ORDER BY t.name;";
 
     let row = rows[0].as_array().expect("row array");
     let schema = row
-        .get(0)
+        .first()
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .to_string();

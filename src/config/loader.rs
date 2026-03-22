@@ -71,7 +71,6 @@ impl Default for ConnectionSettings {
 
 #[derive(Debug, Clone)]
 pub struct SettingsResolved {
-    pub allow_write_default: bool,
     pub output: OutputSettingsResolved,
 }
 
@@ -96,7 +95,6 @@ pub struct CsvSettingsResolved {
 impl Default for SettingsResolved {
     fn default() -> Self {
         Self {
-            allow_write_default: false,
             output: OutputSettingsResolved {
                 default_format: OutputFormat::Pretty,
                 json: JsonSettingsResolved {
@@ -291,9 +289,6 @@ fn apply_profile(
 }
 
 fn apply_settings(settings: &mut SettingsResolved, overrides: &Settings) {
-    if let Some(allow_write_default) = overrides.allow_write_default {
-        settings.allow_write_default = allow_write_default;
-    }
     if let Some(output) = &overrides.output {
         apply_output_settings(&mut settings.output, output);
     }

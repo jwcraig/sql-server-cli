@@ -233,12 +233,14 @@ mod tests {
             }],
             rows: vec![vec![Value::Int(1)]],
         };
-        let mut options = TableOptions::default();
-        options.pagination = Some(Pagination {
-            total: Some(10),
-            offset: 0,
-            limit: 1,
-        });
+        let options = TableOptions {
+            pagination: Some(Pagination {
+                total: Some(10),
+                offset: 0,
+                limit: 1,
+            }),
+            ..TableOptions::default()
+        };
         let result = render_result_set_table(&rs, OutputFormat::Pretty, &options);
         assert!(result.output.contains("Rows 1-1 of 10"));
     }

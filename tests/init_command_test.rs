@@ -32,10 +32,6 @@ fn init_creates_valid_yaml() {
     // Verify nested structure under settings
     let settings = yaml.get("settings").unwrap();
     assert!(
-        settings.get("allowWriteDefault").is_some(),
-        "settings should have allowWriteDefault"
-    );
-    assert!(
         settings.get("output").is_some(),
         "settings should have output"
     );

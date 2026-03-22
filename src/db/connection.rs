@@ -64,12 +64,14 @@ mod tests {
 
     #[test]
     fn builds_ado_string() {
-        let mut settings = ConnectionSettings::default();
-        settings.server = "db.example".to_string();
-        settings.port = 1444;
-        settings.database = "main".to_string();
-        settings.user = Some("sa".to_string());
-        settings.password = Some("secret".to_string());
+        let settings = ConnectionSettings {
+            server: "db.example".to_string(),
+            port: 1444,
+            database: "main".to_string(),
+            user: Some("sa".to_string()),
+            password: Some("secret".to_string()),
+            ..ConnectionSettings::default()
+        };
 
         let ado = build_ado_string(&settings);
         assert!(ado.contains("Server=db.example,1444"));

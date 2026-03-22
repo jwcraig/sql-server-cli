@@ -5,7 +5,7 @@ description: When you need to connect to a SQL Server host/database to inspect s
 
 # SQL Server CLI (agent workflow)
 
-Use `sscli` as the entrypoint for SQL Server inspection and read-only querying.
+Use `sscli` as the entrypoint for SQL Server inspection and raw SQL execution.
 
 ## Quick Start
 
@@ -14,6 +14,7 @@ sscli status
 sscli tables
 sscli describe <Object> #automatic detection of Object type. Returns descriptions for all matching Objects (tables, view, triggers, procs)
 sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
+sscli "SELECT COUNT(*) FROM <TableName/ViewName>"
 ```
 
 ## Output guidance
@@ -24,8 +25,10 @@ sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
 
 ## Safety
 
-- `sscli sql` enforces read-only SQL (SELECT/CTE + allowlist).
-- To run write queries, use `--allow-write` and confirm intent.
+- `sscli sql` is the canonical raw-SQL surface.
+- For file-backed or batch-oriented execution, prefer `sscli sql --file ...` or
+  `sscli sql --stdin`.
+- Prefer explicit `--env-file` when loading connection settings from a file.
 
 ## Compare (schema drift)
 

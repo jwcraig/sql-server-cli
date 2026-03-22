@@ -1,27 +1,23 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use anyhow::{Context, Result};
+
 #[derive(Debug, Clone, Default)]
 pub struct Env {
     vars: HashMap<String, String>,
 }
 
 impl Env {
-    /// Load environment variables from the system, optionally loading a custom env file first.
-    /// If `env_file` is None, loads `.env` from the current directory (if present).
-    /// If `env_file` is Some(path), loads that file instead (silently ignores if missing).
-    pub fn from_system(env_file: Option<&Path>) -> Self {
-        // Load env file (custom path or default .env)
-        match env_file {
-            Some(path) => {
-                let _ = dotenvy::from_path(path);
-            }
-            None => {
-                let _ = dotenvy::dotenv();
-            }
+    /// Load environment variables from the process, optionally loading an explicit env file first.
+    pub fn from_system(env_file: Option<&Path>) -> Result<Self> {
+        if let Some(path) = env_file {
+            dotenvy::from_path_override(path)
+                .with_context(|| format!("Failed to load env file: {}", path.display()))?;
         }
+
         let vars = std::env::vars().collect();
-        Self { vars }
+        Ok(Self { vars })
     }
 
     pub fn from_pairs(pairs: &[(&str, &str)]) -> Self {

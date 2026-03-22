@@ -67,11 +67,10 @@ fn resolve_target_path(path: Option<&PathBuf>) -> Result<PathBuf> {
 fn render_config_template(profile: &str) -> String {
     format!(
         r#"# sscli configuration
-# Defaults favor read-only access.
+# Prefer explicit profiles, CLI flags, and --env-file over ambient cwd .env files.
 
 defaultProfile: {profile}
 settings:
-  allowWriteDefault: false
   output:
     # defaultFormat controls output when no explicit flag is used.
     # Values: pretty | markdown | json
@@ -99,8 +98,6 @@ profiles:
     trustCert: true
     timeout: 30000
     defaultSchemas: [dbo]
-    settings:
-      allowWriteDefault: false
 "#
     )
 }

@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{Arg, ArgAction, ArgMatches, Command, ValueHint};
@@ -26,6 +27,7 @@ pub struct CliArgs {
     pub output: OutputFlags,
     pub verbose: u8,
     pub quiet: bool,
+    pub quiet_target: bool,
     pub command: CommandKind,
 }
 
@@ -95,6 +97,7 @@ pub struct DescribeArgs {
 pub struct SqlArgs {
     pub sql: Option<String>,
     pub file: Option<PathBuf>,
+    pub stdin: bool,
     pub params: Vec<String>,
     pub max_rows: Option<u64>,
     pub csv: Option<PathBuf>,
@@ -272,8 +275,252 @@ pub fn build_cli(show_all: bool) -> Command {
 }
 
 pub fn parse_args() -> CliArgs {
-    let matches = build_cli(false).get_matches();
+    let matches = build_cli(false)
+        .try_get_matches_from(rewrite_bare_sql_shorthand(std::env::args_os().collect()))
+        .unwrap_or_else(|err| err.exit());
     parse_matches(&matches)
+}
+
+fn rewrite_bare_sql_shorthand(argv: Vec<OsString>) -> Vec<OsString> {
+    if argv.len() <= 1 {
+        return argv;
+    }
+
+    let mut rewritten = argv;
+    let mut idx = 1;
+    let mut insert_idx = None;
+    while idx < rewritten.len() {
+        let arg = rewritten[idx].to_string_lossy();
+        if arg == "--" {
+            return rewritten;
+        }
+
+        if is_known_command(arg.as_ref()) {
+            return rewritten;
+        }
+
+        if let Some(consumed) = consumed_global_option_len(&rewritten, idx) {
+            idx += consumed;
+            continue;
+        }
+
+        if let Some(consumed) = consumed_sql_option_len(&rewritten, idx) {
+            insert_idx.get_or_insert(idx);
+            idx += consumed;
+            continue;
+        }
+
+        if !looks_like_sql(arg.as_ref()) {
+            return rewritten;
+        }
+
+        rewritten.insert(insert_idx.unwrap_or(idx), OsString::from("sql"));
+        return rewritten;
+    }
+
+    rewritten
+}
+
+fn consumed_global_option_len(argv: &[OsString], idx: usize) -> Option<usize> {
+    let arg = argv.get(idx)?.to_string_lossy();
+    let has_next = idx + 1 < argv.len();
+
+    if is_known_global_flag(arg.as_ref()) || is_known_short_bundle(arg.as_ref()) {
+        return Some(1);
+    }
+
+    if is_global_long_option_with_value(arg.as_ref())
+        || is_global_short_option_with_attached_value(arg.as_ref())
+    {
+        return Some(1);
+    }
+
+    if is_global_option_requiring_separate_value(arg.as_ref()) && has_next {
+        return Some(2);
+    }
+
+    None
+}
+
+fn consumed_sql_option_len(argv: &[OsString], idx: usize) -> Option<usize> {
+    let arg = argv.get(idx)?.to_string_lossy();
+    let has_next = idx + 1 < argv.len();
+
+    if is_known_sql_flag(arg.as_ref()) {
+        return Some(1);
+    }
+
+    if is_sql_long_option_with_value(arg.as_ref()) {
+        return Some(1);
+    }
+
+    if is_sql_option_requiring_separate_value(arg.as_ref()) && has_next {
+        return Some(2);
+    }
+
+    None
+}
+
+fn is_known_global_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--allow-write"
+            | "--json"
+            | "--markdown"
+            | "--pretty"
+            | "--pretty-print"
+            | "-v"
+            | "--verbose"
+            | "-q"
+            | "--quiet"
+            | "--quiet-target"
+            | "-h"
+            | "--help"
+            | "-V"
+            | "--version"
+    )
+}
+
+fn is_known_short_bundle(arg: &str) -> bool {
+    arg.starts_with('-')
+        && !arg.starts_with("--")
+        && arg.len() > 2
+        && arg[1..]
+            .chars()
+            .all(|ch| matches!(ch, 'v' | 'q' | 'h' | 'V'))
+}
+
+fn is_global_long_option_with_value(arg: &str) -> bool {
+    [
+        "--config=",
+        "--env-file=",
+        "--profile=",
+        "--server=",
+        "--host=",
+        "--port=",
+        "--database=",
+        "--user=",
+        "--password=",
+        "--timeout=",
+        "--encrypt=",
+        "--trust-cert=",
+    ]
+    .iter()
+    .any(|prefix| arg.starts_with(prefix))
+}
+
+fn is_global_option_requiring_separate_value(arg: &str) -> bool {
+    matches!(
+        arg,
+        "-c" | "--config"
+            | "--env-file"
+            | "--profile"
+            | "-H"
+            | "--server"
+            | "--host"
+            | "--port"
+            | "-d"
+            | "--database"
+            | "-u"
+            | "--user"
+            | "-p"
+            | "--password"
+            | "--timeout"
+            | "--encrypt"
+            | "--trust-cert"
+    )
+}
+
+fn is_known_sql_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--stdin" | "--dry-run" | "--continue-on-error" | "--no-truncate"
+    )
+}
+
+fn is_sql_long_option_with_value(arg: &str) -> bool {
+    ["--file=", "--param=", "--max-rows=", "--csv="]
+        .iter()
+        .any(|prefix| arg.starts_with(prefix))
+}
+
+fn is_sql_option_requiring_separate_value(arg: &str) -> bool {
+    matches!(arg, "--file" | "--param" | "--max-rows" | "--csv")
+}
+
+fn is_global_short_option_with_attached_value(arg: &str) -> bool {
+    if !arg.starts_with('-') || arg.starts_with("--") || arg.len() <= 2 {
+        return false;
+    }
+
+    matches!(
+        arg.as_bytes().get(1).copied(),
+        Some(b'c' | b'H' | b'd' | b'u' | b'p')
+    )
+}
+
+fn is_known_command(arg: &str) -> bool {
+    matches!(
+        arg,
+        "help"
+            | "status"
+            | "databases"
+            | "tables"
+            | "describe"
+            | "sql"
+            | "query"
+            | "table-data"
+            | "data"
+            | "head"
+            | "columns"
+            | "update"
+            | "upgrade"
+            | "indexes"
+            | "foreign-keys"
+            | "stored-procs"
+            | "sessions"
+            | "query-stats"
+            | "backups"
+            | "compare"
+            | "init"
+            | "config"
+            | "completions"
+            | "integrations"
+    )
+}
+
+fn looks_like_sql(arg: &str) -> bool {
+    if arg.contains(char::is_whitespace) {
+        return true;
+    }
+
+    let trimmed = arg.trim_start_matches(|ch: char| ch.is_ascii_whitespace());
+    let first = trimmed
+        .split(|ch: char| ch.is_ascii_whitespace() || ch == '(')
+        .next()
+        .unwrap_or("")
+        .trim_matches(|ch: char| ch == ';');
+
+    matches!(
+        first.to_ascii_uppercase().as_str(),
+        "SELECT"
+            | "WITH"
+            | "INSERT"
+            | "UPDATE"
+            | "DELETE"
+            | "BEGIN"
+            | "COMMIT"
+            | "ROLLBACK"
+            | "MERGE"
+            | "CREATE"
+            | "ALTER"
+            | "DROP"
+            | "EXEC"
+            | "EXECUTE"
+            | "DBCC"
+            | "DECLARE"
+            | "USE"
+    )
 }
 
 fn add_global_args(cmd: Command) -> Command {
@@ -292,7 +539,7 @@ fn add_global_args(cmd: Command) -> Command {
             .value_name("PATH")
             .value_hint(ValueHint::FilePath)
             .global(true)
-            .help("Load environment variables from file (default: .env)"),
+            .help("Load environment variables from file"),
     )
     .arg(
         Arg::new("profile")
@@ -355,7 +602,7 @@ fn add_global_args(cmd: Command) -> Command {
             .long("allow-write")
             .action(ArgAction::SetTrue)
             .global(true)
-            .help("Allow write operations (dangerous; applies to SQL-executing commands only)"),
+            .help("Deprecated compatibility flag with no effect"),
     )
     .arg(
         Arg::new("encrypt")
@@ -408,6 +655,13 @@ fn add_global_args(cmd: Command) -> Command {
             .action(ArgAction::SetTrue)
             .global(true)
             .help("Suppress non-error output"),
+    )
+    .arg(
+        Arg::new("quiet-target")
+            .long("quiet-target")
+            .action(ArgAction::SetTrue)
+            .global(true)
+            .help("Suppress resolved server/database banner for SQL execution"),
     )
 }
 
@@ -595,62 +849,64 @@ fn command_describe(show_all: bool) -> Command {
 }
 
 fn command_sql(show_all: bool) -> Command {
-    command_core(
-        "sql",
-        "Execute SQL (read-only default)",
-        &["query"],
-        show_all,
-    )
-    .arg(
-        Arg::new("sql")
-            .index(1)
-            .value_name("SQL")
-            .help("SQL statement to execute"),
-    )
-    .arg(
-        Arg::new("file")
-            .short('f')
-            .long("file")
-            .value_name("path")
-            .value_hint(ValueHint::FilePath)
-            .conflicts_with("sql"),
-    )
-    .arg(
-        Arg::new("param")
-            .long("param")
-            .value_name("name=value")
-            .action(ArgAction::Append),
-    )
-    .arg(
-        Arg::new("max-rows")
-            .short('n')
-            .long("max-rows")
-            .value_name("n")
-            .value_parser(clap::value_parser!(u64)),
-    )
-    .arg(
-        Arg::new("csv")
-            .short('o')
-            .long("csv")
-            .value_name("file")
-            .value_hint(ValueHint::FilePath),
-    )
-    .arg(
-        Arg::new("dry-run")
-            .long("dry-run")
-            .action(ArgAction::SetTrue),
-    )
-    .arg(
-        Arg::new("continue-on-error")
-            .long("continue-on-error")
-            .action(ArgAction::SetTrue),
-    )
-    .arg(
-        Arg::new("no-truncate")
-            .long("no-truncate")
-            .action(ArgAction::SetTrue)
-            .help("Disable output truncation (default: cells >140 chars, total >25KB)"),
-    )
+    command_core("sql", "Execute SQL", &["query"], show_all)
+        .arg(
+            Arg::new("sql")
+                .index(1)
+                .allow_hyphen_values(true)
+                .value_name("SQL")
+                .help("SQL statement to execute"),
+        )
+        .arg(
+            Arg::new("file")
+                .short('f')
+                .long("file")
+                .value_name("path")
+                .value_hint(ValueHint::FilePath)
+                .conflicts_with_all(["sql", "stdin"]),
+        )
+        .arg(
+            Arg::new("stdin")
+                .long("stdin")
+                .action(ArgAction::SetTrue)
+                .conflicts_with_all(["sql", "file"]),
+        )
+        .arg(
+            Arg::new("param")
+                .long("param")
+                .value_name("name=value")
+                .action(ArgAction::Append),
+        )
+        .arg(
+            Arg::new("max-rows")
+                .short('n')
+                .long("max-rows")
+                .value_name("n")
+                .value_parser(clap::value_parser!(u64)),
+        )
+        .arg(
+            Arg::new("csv")
+                .short('o')
+                .long("csv")
+                .value_name("file")
+                .value_hint(ValueHint::FilePath),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("continue-on-error")
+                .long("continue-on-error")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("no-truncate")
+                .long("no-truncate")
+                .action(ArgAction::SetTrue)
+                .help("Disable output truncation (default: cells >140 chars, total >25KB)"),
+        )
 }
 
 fn command_table_data(show_all: bool) -> Command {
@@ -1094,6 +1350,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
     };
     let verbose = matches.get_count("verbose");
     let quiet = matches.get_flag("quiet");
+    let quiet_target = matches.get_flag("quiet-target");
 
     let command = match matches.subcommand() {
         Some(("help", sub_m)) => CommandKind::Help {
@@ -1133,6 +1390,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         Some(("sql", sub_m)) => CommandKind::Sql(SqlArgs {
             sql: sub_m.get_one::<String>("sql").cloned(),
             file: sub_m.get_one::<String>("file").map(PathBuf::from),
+            stdin: sub_m.get_flag("stdin"),
             params: sub_m
                 .get_many::<String>("param")
                 .map(|values| values.cloned().collect())
@@ -1264,6 +1522,7 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         output,
         verbose,
         quiet,
+        quiet_target,
         command,
     }
 }
@@ -1292,7 +1551,24 @@ fn parse_integrations(matches: &ArgMatches) -> IntegrationsArgs {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandKind, build_cli, parse_matches};
+    use std::ffi::OsString;
+
+    use super::{
+        CommandKind, build_cli, looks_like_sql, parse_matches, rewrite_bare_sql_shorthand,
+    };
+
+    fn parse_args_from<I, T>(input: I) -> super::CliArgs
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString>,
+    {
+        let matches = build_cli(false)
+            .try_get_matches_from(rewrite_bare_sql_shorthand(
+                input.into_iter().map(Into::into).collect(),
+            ))
+            .expect("clap should parse input");
+        parse_matches(&matches)
+    }
 
     #[test]
     fn table_data_accepts_positional_object_name() {
@@ -1327,6 +1603,111 @@ mod tests {
                 assert_eq!(cmd.table.as_deref(), Some("flag_name"));
             }
             other => panic!("expected table-data command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_maps_to_sql_command() {
+        let args = parse_args_from(["sscli", "SELECT 1 AS value"]);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1 AS value"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_global_flags() {
+        let args = parse_args_from(["sscli", "--json", "SELECT 1"]);
+        assert!(args.output.json);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn known_subcommand_is_not_rewritten_as_sql() {
+        let args = parse_args_from(["sscli", "status"]);
+        assert!(matches!(args.command, CommandKind::Status(_)));
+    }
+
+    #[test]
+    fn sql_keyword_detection_is_case_insensitive() {
+        assert!(looks_like_sql("select"));
+        assert!(looks_like_sql("DBCC"));
+        assert!(looks_like_sql("ROLLBACK"));
+        assert!(!looks_like_sql("status"));
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_bundled_short_flags() {
+        let args = parse_args_from(["sscli", "-vv", "SELECT 1"]);
+        assert_eq!(args.verbose, 2);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_single_token_transaction_keyword() {
+        let args = parse_args_from(["sscli", "ROLLBACK"]);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("ROLLBACK"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_leading_sql_flags() {
+        let args = parse_args_from(["sscli", "--json", "--dry-run", "SELECT 1"]);
+        assert!(args.output.json);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert!(cmd.dry_run);
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_attached_short_option_values() {
+        let args = parse_args_from(["sscli", "-Hlocalhost", "-dmaster", "SELECT 1"]);
+
+        assert_eq!(args.server.as_deref(), Some("localhost"));
+        assert_eq!(args.database.as_deref(), Some("master"));
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_sql_starting_with_comment() {
+        let args = parse_args_from(["sscli", "-- header\nSELECT 1"]);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("-- header\nSELECT 1"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
         }
     }
 }

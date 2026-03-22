@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Read;
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
@@ -13,7 +14,6 @@ use crate::db::executor;
 use crate::db::types::ResultSet;
 use crate::error::{AppError, ErrorKind};
 use crate::output::{TableOptions, csv, json as json_out, table};
-use crate::safety;
 
 const MAX_ROWS_DEFAULT: u64 = 200;
 const MAX_ROWS_MAX: u64 = 2000;
@@ -30,23 +30,36 @@ struct BatchResult {
 pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     let resolved = common::load_config(args)?;
     let format = common::output_format(args, &resolved);
-    let allow_write = common::allow_write(args, &resolved);
-
-    let sql_text = match (&cmd.sql, &cmd.file) {
-        (Some(_), Some(_)) => return Err(anyhow!("Provide SQL text or --file, not both")),
-        (None, None) => return Err(anyhow!("Provide SQL text or --file")),
-        (Some(text), None) => text.clone(),
-        (None, Some(path)) => fs::read_to_string(path)?,
+    let sql_text = match (&cmd.sql, &cmd.file, cmd.stdin) {
+        (Some(_), Some(_), _) => {
+            return Err(anyhow!(
+                "Provide SQL text, --file, or --stdin, not multiple inputs"
+            ));
+        }
+        (Some(_), None, true) => {
+            return Err(anyhow!(
+                "Provide SQL text, --file, or --stdin, not multiple inputs"
+            ));
+        }
+        (None, Some(_), true) => {
+            return Err(anyhow!(
+                "Provide SQL text, --file, or --stdin, not multiple inputs"
+            ));
+        }
+        (None, None, false) => return Err(anyhow!("Provide SQL text, --file, or --stdin")),
+        (Some(text), None, false) => text.clone(),
+        (None, Some(path), false) => fs::read_to_string(path)?,
+        (None, None, true) => {
+            let mut sql = String::new();
+            std::io::stdin().read_to_string(&mut sql)?;
+            sql
+        }
     };
 
     let params = sql_utils::parse_params(&cmd.params)
         .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
 
-    let mut batches = if cmd.file.is_some() {
-        sql_utils::split_batches(&sql_text)
-    } else {
-        vec![sql_text]
-    };
+    let mut batches = sql_utils::split_batches(&sql_text);
     batches.retain(|batch| !batch.trim().is_empty());
 
     if batches.is_empty() {
@@ -58,11 +71,11 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         .map(|batch| sql_utils::replace_named_params(batch, &params, 1))
         .collect::<Vec<_>>();
 
-    if !allow_write {
-        for batch in &batches {
-            safety::validate_read_only(batch)
-                .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
-        }
+    if !args.quiet && !args.quiet_target {
+        eprintln!(
+            "Target: {}:{}/{}",
+            resolved.connection.server, resolved.connection.port, resolved.connection.database
+        );
     }
 
     if cmd.dry_run {

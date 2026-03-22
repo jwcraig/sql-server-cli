@@ -8,7 +8,6 @@ use crate::config::OutputFormat;
 use crate::db::client;
 use crate::db::executor;
 use crate::db::types::{Column, ResultSet, Value};
-use crate::error::{AppError, ErrorKind};
 use crate::output::{TableOptions, json as json_out, table};
 use crate::safety;
 
@@ -197,10 +196,6 @@ fn exec_proc(
     } else {
         format!("EXEC {}", proc_name)
     };
-    if !common::allow_write(args, &resolved) {
-        safety::validate_read_only(&statement)
-            .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
-    }
 
     let result_sets = tokio::runtime::Runtime::new()?.block_on(async {
         let mut client = client::connect(&resolved.connection).await?;

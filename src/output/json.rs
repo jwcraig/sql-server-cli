@@ -67,7 +67,6 @@ pub fn config_to_json(resolved: &ResolvedConfig) -> serde_json::Value {
             "defaultSchemas": resolved.connection.default_schemas,
         },
         "settings": {
-            "allowWriteDefault": resolved.settings.allow_write_default,
             "output": {
                 "defaultFormat": resolved.settings.output.default_format.as_str(),
                 "json": {

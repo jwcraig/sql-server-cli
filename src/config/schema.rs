@@ -13,7 +13,6 @@ pub struct ConfigFile {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    pub allow_write_default: Option<bool>,
     pub output: Option<OutputSettings>,
 }
 

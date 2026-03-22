@@ -36,10 +36,6 @@ pub fn json_pretty(resolved: &ResolvedConfig) -> bool {
     resolved.settings.output.json.pretty
 }
 
-pub fn allow_write(args: &CliArgs, resolved: &ResolvedConfig) -> bool {
-    args.allow_write || resolved.settings.allow_write_default
-}
-
 pub fn parse_limit(value: Option<u64>, default: u64, max: u64) -> u64 {
     match value {
         Some(v) if v < 1 => default,
