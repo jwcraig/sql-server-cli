@@ -2,17 +2,29 @@
 
 SQL Server CLI for AI coding agents.
 
-One install. Your agents automatically know how to inspect SQL Server databases, run safe queries, and export results.
+One install. Your agents automatically know how to inspect SQL Server databases,
+run SQL, and export results.
+
+## Command model direction
+
+`sql` is the canonical raw-SQL surface in this project.
+
+Current releases still enforce read-only behavior by default for `sscli sql`
+unless you pass `--allow-write`, but the product direction is to make `sql`
+the primary raw SQL entry point rather than pushing users back to `sqlcmd`.
+
+For configuration, prefer explicit `--env-file` over relying on ambient `.env`
+files in the working directory.
 
 ## Why sscli?
 
 |                            |                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------ |
-| **Token-efficient**        | Markdown output by default keeps agent context lean                            |
-| **Read-only default**      | Blocks INSERT, UPDATE, DELETE unless overridden (--allow-write) — no accidents |
-| **Single binary**          | Fast startup, no runtime dependencies                                          |
-| **CLI over MCP**           | No "tool bloat" from verbose tool descriptions for tools that are rarely used  |
-| **Progressive disclosure** | Core commands visible, advanced disclosed when needed                          |
+| **Token-efficient**        | Markdown output by default keeps agent context lean                           |
+| **SQL-first workflows**    | Canonical `sql` command for raw SQL, plus schema/discovery helpers            |
+| **Single binary**          | Fast startup, no runtime dependencies                                         |
+| **CLI over MCP**           | No "tool bloat" from verbose tool descriptions for tools that are rarely used |
+| **Progressive disclosure** | Core commands visible, advanced disclosed when needed                         |
 
 ## Why not sqlcmd
 
@@ -25,15 +37,16 @@ structured, repeatable automation:
   markdown tables or a single JSON object they can reliably parse.
 - **Schema discovery is manual**: you end up writing catalog queries (`sys.tables`, `INFORMATION_SCHEMA`, etc.)
   instead of calling purpose-built primitives like `sscli tables`, `sscli describe`, and `sscli columns`.
-- **No safety guardrails**: `sqlcmd` will happily run destructive statements if an agent makes a mistake.
-  `sscli sql` blocks writes by default and requires `--allow-write` for mutations.
+- **Structured SQL workflows**: `sscli` keeps raw SQL, schema discovery, and machine-readable output in
+  one tool. Current releases still require `--allow-write` for mutations, but the long-term direction is
+  to make `sql` the main raw-SQL surface rather than forcing fallbacks to `sqlcmd`.
 - **More setup friction**: `sqlcmd` is typically installed via Microsoft tooling and may require ODBC drivers
   depending on platform/CI image; sscli is a single binary with config + env var discovery built in.
 - **No agent integration**: sscli can install a reusable skill/extension so agents "know the tool" without you
   pasting usage docs into every prompt.
 
-Keep `sqlcmd` for interactive SQL. Reach for sscli when you want safe-by-default queries, fast schema
-inspection, and output formats that are easy for agents to use.
+Keep `sqlcmd` for interactive SQL. Reach for `sscli` when you want raw SQL plus fast schema inspection
+and output formats that are easy for agents to use.
 
 ## Quick Start (Agent Users)
 
@@ -58,16 +71,16 @@ sscli integrations skills add --global   # Claude Code + Codex
 sscli integrations gemini add --global   # Gemini CLI
 ```
 
-**Done.** Your agents now know how to browse schemas, run safe queries, and export results.
+**Done.** Your agents now know how to browse schemas, run SQL, and export results.
 
 ### What changes?
 
 | Before                                | After                                                        |
 | ------------------------------------- | ------------------------------------------------------------ |
 | You paste schema context into prompts | Agent discovers schema on demand                             |
-| Agent guesses at SQL Server commands  | Agent knows `sscli tables`, `sscli describe <Object>`, etc.  |
-| Risk of accidental writes             | Read-only by default, explicit `--allow-write` override      |
-| Verbose output bloats context         | Token-efficient markdown output by default, --json if needed |
+| Agent guesses at SQL Server commands  | Agent knows `sscli sql`, `sscli tables`, `sscli describe`    |
+| Raw SQL needs a second tool           | Canonical `sql` command plus schema/discovery helpers        |
+| Verbose output bloats context         | Token-efficient markdown output by default, `--json` if needed |
 
 ## Manual Usage
 
@@ -102,6 +115,10 @@ sscli sql "SELECT TOP 5 * FROM Users"
 sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
 sscli update                              # Check for new releases (alias: sscli upgrade)
 ```
+
+Direction note: `sscli sql ...` is the canonical form in docs. A bare shorthand
+such as `sscli "SELECT 1"` is planned but is not implemented in the current
+release.
 
 ## Installation
 
@@ -201,10 +218,12 @@ Example `settings.json`:
 
 The installed skill file tells agents:
 
-- When to use sscli (database inspection, schema discovery, safe queries)
+- When to use sscli (database inspection, schema discovery, raw SQL execution)
 - Available commands and their purpose
 - Output preferences (markdown for context efficiency, `--json` for structured data)
-- Safety model (read-only default, `--allow-write` for mutations)
+- Current transition state: today's releases still use read-only-by-default for
+  `sscli sql`, but docs and examples should teach `sql` as the main raw-SQL
+  surface
 
 ## Configuration
 
@@ -269,7 +288,11 @@ For a fully commented example (including `settings.output.*`, `timeout`, and `de
 
 Environment variables override values from the config file when no explicit `--profile` was passed. If you pass `--profile <name>`, the profile values win over env vars (flags still win over both).
 
-**`.env` file support:** sscli automatically loads a `.env` file from the current directory if present, reading any of the supported variables listed below. Use `--env-file` to load a different file (e.g., `--env-file .env.dev`). This is useful for local development without polluting your shell environment.
+**`.env` file support:** current releases automatically load a `.env` file from
+the current directory if present, reading any of the supported variables listed
+below. Prefer `--env-file` to make the source of configuration explicit, for
+example `--env-file .env.dev`. The planned direction is to require explicit
+`--env-file` instead of relying on ambient cwd `.env` discovery.
 
 | Purpose                  | Environment variables (first match wins)                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
@@ -304,7 +327,7 @@ Environment variables override values from the config file when no explicit `--p
 | `databases`  | List databases                                       |
 | `tables`     | Browse tables and views (`--describe` for batch DDL) |
 | `describe`   | Any object: table, view, trigger, proc, function     |
-| `sql`        | Execute read-only SQL                                |
+| `sql`        | Execute SQL                                          |
 | `table-data` | Sample rows from a table                             |
 | `columns`    | Find columns across tables/views/procs (first result set) |
 
@@ -336,12 +359,19 @@ JSON output emits exactly one object to stdout. Errors go to stderr.
 
 ## Safety
 
-`sscli sql` enforces read-only mode by default:
+Current releases still enforce read-only mode by default for `sscli sql`:
 
 - **Allowed:** SELECT, WITH (CTEs), whitelisted stored procedures
 - **Blocked:** INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, MERGE, etc.
 
-Override with `--allow-write` when you intentionally need mutations.
+Use `--allow-write` when you intentionally need mutations today.
+
+Project direction:
+
+- keep `sql` as the canonical raw-SQL command
+- reduce unnecessary friction that pushes users back to `sqlcmd`
+- prefer lightweight safety rails and explicit target visibility over hidden
+  parser restrictions
 
 ## JSON Contract (v1)
 
