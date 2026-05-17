@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures_util::TryStreamExt;
 
 use crate::db::types::{Column, ResultSet, Value};
 use crate::error::{AppError, ErrorKind};
@@ -15,39 +16,84 @@ pub async fn run_query(
 }
 
 pub async fn collect_result_sets(stream: tiberius::QueryStream<'_>) -> Result<Vec<ResultSet>> {
-    let result_sets = stream
-        .into_results()
+    let mut stream = stream;
+    let mut collector = ResultSetCollector::default();
+
+    while let Some(item) = stream
+        .try_next()
         .await
-        .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
-    let mut output = Vec::new();
-
-    for rows in result_sets {
-        let columns = rows
-            .first()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .map(|col| Column {
-                        name: col.name().to_string(),
-                        data_type: None,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let mut converted_rows = Vec::new();
-        for row in rows {
-            let values = row.cells().map(|(_, data)| map_column_data(data)).collect();
-            converted_rows.push(values);
+        .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?
+    {
+        match item {
+            tiberius::QueryItem::Metadata(metadata) => {
+                collector.start_result_set(metadata.columns());
+            }
+            tiberius::QueryItem::Row(row) => {
+                collector.push_row(&row);
+            }
         }
+    }
 
-        output.push(ResultSet {
-            columns,
-            rows: converted_rows,
+    Ok(collector.finish())
+}
+
+#[derive(Debug, Default)]
+struct ResultSetCollector {
+    result_sets: Vec<ResultSet>,
+    current: Option<ResultSet>,
+}
+
+impl ResultSetCollector {
+    fn start_result_set(&mut self, columns: &[tiberius::Column]) {
+        self.finish_current();
+        self.current = Some(ResultSet {
+            columns: map_columns(columns),
+            rows: Vec::new(),
         });
     }
 
-    Ok(output)
+    fn push_row(&mut self, row: &tiberius::Row) {
+        if self.current.is_none() {
+            self.current = Some(ResultSet {
+                columns: map_columns(row.columns()),
+                rows: Vec::new(),
+            });
+        }
+        let values = row.cells().map(|(_, data)| map_column_data(data)).collect();
+        self.push_values(values);
+    }
+
+    fn push_values(&mut self, values: Vec<Value>) {
+        if self.current.is_none() {
+            self.current = Some(ResultSet::default());
+        }
+        self.current
+            .as_mut()
+            .expect("current result set must exist before pushing row values")
+            .rows
+            .push(values);
+    }
+
+    fn finish(mut self) -> Vec<ResultSet> {
+        self.finish_current();
+        self.result_sets
+    }
+
+    fn finish_current(&mut self) {
+        if let Some(result_set) = self.current.take() {
+            self.result_sets.push(result_set);
+        }
+    }
+}
+
+fn map_columns(columns: &[tiberius::Column]) -> Vec<Column> {
+    columns
+        .iter()
+        .map(|col| Column {
+            name: col.name().to_string(),
+            data_type: None,
+        })
+        .collect()
 }
 
 fn map_column_data(data: &tiberius::ColumnData<'_>) -> Value {
@@ -250,5 +296,46 @@ fn format_tds_time(time: tiberius::time::Time) -> String {
         format!("{:02}:{:02}:{:02}.{}", hours, mins, secs, frac_str)
     } else {
         format!("{:02}:{:02}:{:02}", hours, mins, secs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tiberius::{Column as TdsColumn, ColumnType};
+
+    fn tds_column(name: &str) -> TdsColumn {
+        TdsColumn::new(name.to_string(), ColumnType::Int4)
+    }
+
+    #[test]
+    fn collector_preserves_headers_for_empty_result_set_before_rows() {
+        let mut collector = ResultSetCollector::default();
+        collector.start_result_set(&[tds_column("empty_int")]);
+        collector.start_result_set(&[tds_column("full_int")]);
+        collector.push_values(vec![Value::Int(7)]);
+
+        let result_sets = collector.finish();
+
+        assert_eq!(result_sets.len(), 2);
+        assert_eq!(result_sets[0].columns[0].name, "empty_int");
+        assert!(result_sets[0].rows.is_empty());
+        assert_eq!(result_sets[1].columns[0].name, "full_int");
+        assert_eq!(result_sets[1].rows, vec![vec![Value::Int(7)]]);
+    }
+
+    #[test]
+    fn collector_keeps_consecutive_empty_result_sets() {
+        let mut collector = ResultSetCollector::default();
+        collector.start_result_set(&[tds_column("first_empty")]);
+        collector.start_result_set(&[tds_column("second_empty")]);
+
+        let result_sets = collector.finish();
+
+        assert_eq!(result_sets.len(), 2);
+        assert_eq!(result_sets[0].columns[0].name, "first_empty");
+        assert!(result_sets[0].rows.is_empty());
+        assert_eq!(result_sets[1].columns[0].name, "second_empty");
+        assert!(result_sets[1].rows.is_empty());
     }
 }
