@@ -284,13 +284,7 @@ fn run_describe_mode(
             };
             // Get object type (BASE TABLE or VIEW), default to Table
             let obj_type = match row.get(2) {
-                Some(Value::Text(s)) => {
-                    if s.to_uppercase().contains("VIEW") {
-                        "View"
-                    } else {
-                        "Table"
-                    }
-                }
+                Some(Value::Text(s)) if s.to_uppercase().contains("VIEW") => "View",
                 _ => "Table",
             }
             .to_string();
