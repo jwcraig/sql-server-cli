@@ -27,23 +27,38 @@ fn main() {
 
 fn run() -> anyhow::Result<()> {
     let args = cli::parse();
-    init_logging(args.verbose);
+    init_logging(&args);
     commands::dispatch(&args)
 }
 
-fn init_logging(verbose: u8) {
-    let filter = match verbose {
+fn init_logging(args: &cli::CliArgs) {
+    let mut filter = match args.verbose {
         0 => "warn,tiberius=error",
         1 => "info",
         2 => "debug",
         _ => "trace",
-    };
+    }
+    .to_string();
+    if should_quiet_tls_warning(args) && !filter.contains("tiberius=") {
+        filter.push_str(",tiberius=error");
+    }
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(filter));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .try_init();
+}
+
+fn should_quiet_tls_warning(args: &cli::CliArgs) -> bool {
+    args.quiet_tls_warning
+        || matches!(args.trust_cert, Some(true))
+        || matches!(
+            args.output.format,
+            Some(
+                cli::OutputFormatArg::Tsv | cli::OutputFormatArg::Csv | cli::OutputFormatArg::Jsonl
+            )
+        )
 }
 
 fn print_error(message: &str) {

@@ -1,6 +1,6 @@
 ---
 name: {name}
-description: When you need to connect to a SQL Server host/database to inspect schemas, check status, sample table data, or run ad-hoc queries, use the `sscli` CLI. Prefer markdown output for token efficiency (default) and `--json` for machine-readable results.
+description: When you need to connect to a SQL Server host/database to inspect schemas, check status, sample table data, run ad-hoc queries, or capture SQL Server evidence files, use the `sscli` CLI. Prefer markdown output for token-efficient reading, `--json` for structured command results, and `--format tsv|csv|jsonl` for raw row evidence.
 ---
 
 # SQL Server CLI (agent workflow)
@@ -15,13 +15,30 @@ sscli tables
 sscli describe <Object> #automatic detection of Object type. Returns descriptions for all matching Objects (tables, view, triggers, procs)
 sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
 sscli "SELECT COUNT(*) FROM <TableName/ViewName>"
+sscli --format tsv --no-headers "SELECT COUNT_BIG(*) FROM <TableName/ViewName>"
 ```
 
 ## Output guidance
 
 - Default output is markdown (token-friendly).
 - For machine-readable results, add `--json`.
+- For shell-diffable row evidence, use `--format tsv --no-headers --raw`.
+- For row streams consumed by scripts, use `--format jsonl`.
+- Raw row formats keep stdout data-only; diagnostics stay on stderr.
 - Output is truncated by default (cells >140 chars, total >25KB). Use `--no-truncate` for full output when you need complete data.
+
+## Connection and secrets
+
+- Prefer `--password-env NAME` over `--password value`.
+- Use `--quiet-tls-warning` when `--trust-cert true` is intentional and evidence output must stay clean.
+- For ephemeral restore containers, prefer `SSCLI_URL`:
+
+```bash
+export SSCLI_URL='sqlserver://sa:...@127.0.0.1:15433/WDM?trustServerCertificate=true'
+sscli status
+```
+
+- `config --json` reports whether a password is set, but does not print the secret.
 
 ## Safety
 
@@ -29,6 +46,14 @@ sscli "SELECT COUNT(*) FROM <TableName/ViewName>"
 - For file-backed or batch-oriented execution, prefer `sscli sql --file ...` or
   `sscli sql --stdin`.
 - Prefer explicit `--env-file` when loading connection settings from a file.
+
+For planned maintenance, prefer explicit admin commands over dropping to `sqlcmd`:
+
+```bash
+sscli admin checkdb --database WDM --physical-only --docker-volume-safe --dry-run
+sscli admin backup verify --from /var/opt/mssql/backup/WDM.bak --checksum --dry-run
+sscli compare-counts --source-db WDM_A --target-db WDM_B --tables dbo.TableA,dbo.TableB
+```
 
 ## Compare (schema drift)
 

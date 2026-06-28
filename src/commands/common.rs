@@ -16,6 +16,7 @@ pub fn overrides_from_args(args: &CliArgs) -> CliOverrides {
         database: args.database.clone(),
         user: args.user.clone(),
         password: args.password.clone(),
+        password_env: args.password_env.clone(),
         timeout_ms: args.timeout_ms,
         encrypt: args.encrypt,
         trust_cert: args.trust_cert,

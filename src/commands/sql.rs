@@ -13,7 +13,7 @@ use crate::db::client;
 use crate::db::executor;
 use crate::db::types::ResultSet;
 use crate::error::{AppError, ErrorKind};
-use crate::output::{TableOptions, csv, json as json_out, table};
+use crate::output::{TableOptions, csv, json as json_out, raw, table};
 
 const MAX_ROWS_DEFAULT: u64 = 200;
 const MAX_ROWS_MAX: u64 = 2000;
@@ -166,6 +166,29 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(raw_format) = raw_format(&format) {
+        let options = raw::RawOptions {
+            format: raw_format,
+            headers: !cmd.no_headers,
+            null_value: cmd.null_value.clone().unwrap_or_default(),
+            result_set: cmd.result_set,
+            all_result_sets: cmd.all_result_sets,
+        };
+        let body = raw::render_result_sets(&result_sets, &options)?;
+        if let Some(path) = cmd.output.as_ref() {
+            if path.as_os_str() == "-" {
+                if !args.quiet {
+                    print!("{}", body);
+                }
+            } else {
+                fs::write(path, body)?;
+            }
+        } else if !args.quiet {
+            print!("{}", body);
+        }
+        return Ok(());
+    }
+
     if args.quiet {
         return Ok(());
     }
@@ -196,6 +219,15 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn raw_format(format: &OutputFormat) -> Option<raw::RawFormat> {
+    match format {
+        OutputFormat::Tsv => Some(raw::RawFormat::Tsv),
+        OutputFormat::Csv => Some(raw::RawFormat::Csv),
+        OutputFormat::Jsonl => Some(raw::RawFormat::Jsonl),
+        _ => None,
+    }
 }
 
 fn emit_dry_run(

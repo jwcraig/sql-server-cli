@@ -122,6 +122,9 @@ sscli sql "SELECT TOP 5 * FROM Users"
 sscli "SELECT COUNT(*) FROM Users"        # Top-level shorthand for inline SQL
 sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
 cat patch.sql | sscli sql --stdin         # Pipe a script on stdin
+sscli --format tsv --no-headers "SELECT COUNT_BIG(*) FROM Users"
+sscli --trust-cert true --quiet-tls-warning "SELECT 1"
+sscli --password-env SQL_PASSWORD status  # Avoid putting passwords on the command line
 sscli update                              # Check for new releases (alias: sscli upgrade)
 ```
 
@@ -300,7 +303,7 @@ load `.env` from the current working directory.
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
 | Config path              | `SQL_SERVER_CONFIG`, `SQLSERVER_CONFIG`                                                                   |
 | Profile                  | `SQL_SERVER_PROFILE`, `SQLSERVER_PROFILE`                                                                 |
-| Connection URL           | `DATABASE_URL`, `DB_URL`, `SQLSERVER_URL`                                                                 |
+| Connection URL           | `SSCLI_URL`, `DATABASE_URL`, `DB_URL`, `SQLSERVER_URL`                                                    |
 | Server                   | `SQL_SERVER`, `SQLSERVER_HOST`, `DB_HOST`, `MSSQL_HOST`                                                   |
 | Port                     | `SQL_PORT`, `SQLSERVER_PORT`, `DB_PORT`, `MSSQL_PORT`                                                     |
 | Database                 | `SQL_DATABASE`, `SQLSERVER_DB`, `DATABASE`, `DB_NAME`, `MSSQL_DATABASE`                                   |
@@ -318,6 +321,9 @@ load `.env` from the current working directory.
 | User     | `SQLCMDUSER`     |
 | Password | `SQLCMDPASSWORD` |
 | Database | `SQLCMDDBNAME`   |
+
+Connection URL query options include `trustServerCertificate=true|false`,
+`encrypt=true|false`, and `timeoutMs=<milliseconds>`.
 
 ## Commands
 
@@ -344,6 +350,9 @@ load `.env` from the current working directory.
 | `query-stats`  | Top cached queries by resource usage           |
 | `backups`      | Recent backup history                          |
 | `compare`      | Schema drift detection between two connections |
+| `compare-counts` | Row-count validation across databases        |
+| `health`       | Constraint, trigger, and identity summaries    |
+| `admin`        | SQL Server maintenance SQL, backup, and DBCC   |
 | `integrations` | Install agent skills/extensions                |
 
 Note: `sscli sessions` filters by client host name using `--client-host`. `--host` is reserved as an alias for `--server`.
@@ -356,8 +365,16 @@ Note: `sscli sessions` filters by client host name using `--client-host`. `--hos
 | Piped / non-TTY | Markdown tables           |
 | `--json` flag   | Stable JSON (v1 contract) |
 | `--csv <file>`  | CSV export                |
+| `--format tsv`  | Raw TSV rows              |
+| `--format csv`  | Raw CSV rows              |
+| `--format jsonl` | One JSON object per row  |
 
 JSON output emits exactly one object to stdout. Errors go to stderr.
+Raw row formats keep stdout data-only; target banners, progress, warnings, and
+errors go to stderr. Use `--no-headers` for headerless TSV/CSV evidence files
+and `--output <path|->` to write raw row output.
+Use `--quiet-tls-warning` when `--trust-cert true` is intentional and verbose
+logging would otherwise print Tiberius' certificate-validation warning.
 
 ## Safety
 
@@ -384,6 +401,11 @@ Each command returns a stable top-level object:
 | `table-data` | `{ table, columns, rows, total, offset, limit, hasMore, nextOffset }`                              |
 | `sql`        | `{ success, batches, resultSets, csvPaths? }`                                                      |
 | `compare`    | `{ modules, indexes, constraints, tables }` when `--summary`; `{ source, target }` snapshots with full metadata when `--json` without `--summary` |
+| `compare-counts` | `{ sourceDb, targetDb, counts }`                                                               |
+| `health`     | `{ kind, checks }`                                                                                 |
+
+`config --json` never emits plaintext passwords by default. It reports
+`passwordSet`, `passwordSource`, and `passwordEnv` metadata instead.
 
 Errors (stderr):
 

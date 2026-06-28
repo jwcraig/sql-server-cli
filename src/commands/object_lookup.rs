@@ -397,6 +397,7 @@ mod tests {
                 trust_cert: true,
                 timeout_ms: 30_000,
                 default_schemas: vec!["dbo".to_string()],
+                ..ConnectionSettings::default()
             },
             settings: SettingsResolved::default(),
         }

@@ -3,11 +3,36 @@ use std::path::PathBuf;
 
 use clap::{Arg, ArgAction, ArgMatches, Command, ValueHint};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormatArg {
+    Pretty,
+    Markdown,
+    Json,
+    Tsv,
+    Csv,
+    Jsonl,
+}
+
+impl OutputFormatArg {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "pretty" => Some(Self::Pretty),
+            "markdown" | "md" => Some(Self::Markdown),
+            "json" => Some(Self::Json),
+            "tsv" => Some(Self::Tsv),
+            "csv" => Some(Self::Csv),
+            "jsonl" | "ndjson" => Some(Self::Jsonl),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OutputFlags {
     pub json: bool,
     pub markdown: bool,
     pub pretty: bool,
+    pub format: Option<OutputFormatArg>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,10 +45,12 @@ pub struct CliArgs {
     pub database: Option<String>,
     pub user: Option<String>,
     pub password: Option<String>,
+    pub password_env: Option<String>,
     pub timeout_ms: Option<u64>,
     pub allow_write: bool,
     pub encrypt: Option<bool>,
     pub trust_cert: Option<bool>,
+    pub quiet_tls_warning: bool,
     pub output: OutputFlags,
     pub verbose: u8,
     pub quiet: bool,
@@ -49,6 +76,9 @@ pub enum CommandKind {
     QueryStats(QueryStatsArgs),
     Backups(BackupsArgs),
     Compare(CompareArgs),
+    CompareCounts(CompareCountsArgs),
+    Health(HealthArgs),
+    Admin(AdminArgs),
     Init(InitArgs),
     Config(ConfigArgs),
     Completions(CompletionsArgs),
@@ -101,9 +131,15 @@ pub struct SqlArgs {
     pub params: Vec<String>,
     pub max_rows: Option<u64>,
     pub csv: Option<PathBuf>,
+    pub output: Option<PathBuf>,
     pub dry_run: bool,
     pub continue_on_error: bool,
     pub no_truncate: bool,
+    pub no_headers: bool,
+    pub raw: bool,
+    pub null_value: Option<String>,
+    pub result_set: Option<usize>,
+    pub all_result_sets: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +218,118 @@ pub struct BackupsArgs {
     pub since: Option<u64>,
     pub backup_type: Option<String>,
     pub limit: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompareCountsArgs {
+    pub source_db: Option<String>,
+    pub target_db: Option<String>,
+    pub source_connection: Option<String>,
+    pub target_connection: Option<String>,
+    pub tables: Option<Vec<String>>,
+    pub tables_file: Option<PathBuf>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HealthArgs {
+    pub command: HealthCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HealthCommand {
+    Constraints(HealthCheckArgs),
+    Triggers(HealthCheckArgs),
+    Identities(HealthCheckArgs),
+    Help,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HealthCheckArgs {
+    pub all_user_tables: bool,
+    pub schema: Option<String>,
+    pub tables: Option<Vec<String>>,
+    pub tables_file: Option<PathBuf>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminArgs {
+    pub command: AdminCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdminCommand {
+    Sql(AdminSqlArgs),
+    Backup(AdminBackupCommand),
+    CheckDb(AdminCheckDbArgs),
+    Help,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminSqlArgs {
+    pub sql: Option<String>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdminBackupCommand {
+    Create(AdminBackupCreateArgs),
+    Verify(AdminBackupVerifyArgs),
+    Filelist(AdminBackupFilelistArgs),
+    RestorePlan(AdminBackupRestorePlanArgs),
+    RestoreTest(AdminBackupRestoreTestArgs),
+    Help,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminBackupCreateArgs {
+    pub database: String,
+    pub to: PathBuf,
+    pub copy_only: bool,
+    pub compression: bool,
+    pub checksum: bool,
+    pub stats: Option<u64>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminBackupVerifyArgs {
+    pub from: PathBuf,
+    pub checksum: bool,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminBackupFilelistArgs {
+    pub from: PathBuf,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminBackupRestorePlanArgs {
+    pub from: PathBuf,
+    pub database: String,
+    pub data_dir: Option<PathBuf>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminBackupRestoreTestArgs {
+    pub from: PathBuf,
+    pub database: String,
+    pub data_dir: Option<PathBuf>,
+    pub drop_after: bool,
+    pub compare_counts: Option<Vec<String>>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminCheckDbArgs {
+    pub database: String,
+    pub physical_only: bool,
+    pub docker_volume_safe: bool,
+    pub dry_run: bool,
 }
 
 /// Arguments for schema drift comparison between two connections.
@@ -269,6 +417,9 @@ pub fn build_cli(show_all: bool) -> Command {
     cmd = cmd.subcommand(command_query_stats(show_all));
     cmd = cmd.subcommand(command_backups(show_all));
     cmd = cmd.subcommand(command_compare(show_all));
+    cmd = cmd.subcommand(command_compare_counts(show_all));
+    cmd = cmd.subcommand(command_health(show_all));
+    cmd = cmd.subcommand(command_admin(show_all));
     cmd = cmd.subcommand(command_integrations(show_all));
 
     cmd
@@ -374,6 +525,7 @@ fn is_known_global_flag(arg: &str) -> bool {
             | "-q"
             | "--quiet"
             | "--quiet-target"
+            | "--quiet-tls-warning"
             | "-h"
             | "--help"
             | "-V"
@@ -395,12 +547,14 @@ fn is_global_long_option_with_value(arg: &str) -> bool {
         "--config=",
         "--env-file=",
         "--profile=",
+        "--format=",
         "--server=",
         "--host=",
         "--port=",
         "--database=",
         "--user=",
         "--password=",
+        "--password-env=",
         "--timeout=",
         "--encrypt=",
         "--trust-cert=",
@@ -415,6 +569,7 @@ fn is_global_option_requiring_separate_value(arg: &str) -> bool {
         "-c" | "--config"
             | "--env-file"
             | "--profile"
+            | "--format"
             | "-H"
             | "--server"
             | "--host"
@@ -425,6 +580,7 @@ fn is_global_option_requiring_separate_value(arg: &str) -> bool {
             | "--user"
             | "-p"
             | "--password"
+            | "--password-env"
             | "--timeout"
             | "--encrypt"
             | "--trust-cert"
@@ -434,18 +590,35 @@ fn is_global_option_requiring_separate_value(arg: &str) -> bool {
 fn is_known_sql_flag(arg: &str) -> bool {
     matches!(
         arg,
-        "--stdin" | "--dry-run" | "--continue-on-error" | "--no-truncate"
+        "--stdin"
+            | "--dry-run"
+            | "--continue-on-error"
+            | "--no-truncate"
+            | "--no-headers"
+            | "--raw"
+            | "--all-result-sets"
     )
 }
 
 fn is_sql_long_option_with_value(arg: &str) -> bool {
-    ["--file=", "--param=", "--max-rows=", "--csv="]
-        .iter()
-        .any(|prefix| arg.starts_with(prefix))
+    [
+        "--file=",
+        "--param=",
+        "--max-rows=",
+        "--csv=",
+        "--output=",
+        "--null=",
+        "--result-set=",
+    ]
+    .iter()
+    .any(|prefix| arg.starts_with(prefix))
 }
 
 fn is_sql_option_requiring_separate_value(arg: &str) -> bool {
-    matches!(arg, "--file" | "--param" | "--max-rows" | "--csv")
+    matches!(
+        arg,
+        "--file" | "--param" | "--max-rows" | "--csv" | "--output" | "--null" | "--result-set"
+    )
 }
 
 fn is_global_short_option_with_attached_value(arg: &str) -> bool {
@@ -482,6 +655,9 @@ fn is_known_command(arg: &str) -> bool {
             | "query-stats"
             | "backups"
             | "compare"
+            | "compare-counts"
+            | "health"
+            | "admin"
             | "init"
             | "config"
             | "completions"
@@ -590,6 +766,13 @@ fn add_global_args(cmd: Command) -> Command {
             .help("SQL Server password"),
     )
     .arg(
+        Arg::new("password-env")
+            .long("password-env")
+            .value_name("VAR")
+            .global(true)
+            .help("Read SQL Server password from the named environment variable"),
+    )
+    .arg(
         Arg::new("timeout")
             .long("timeout")
             .value_name("MS")
@@ -619,11 +802,28 @@ fn add_global_args(cmd: Command) -> Command {
             .help("Trust server certificate"),
     )
     .arg(
+        Arg::new("quiet-tls-warning")
+            .long("quiet-tls-warning")
+            .action(ArgAction::SetTrue)
+            .global(true)
+            .help("Suppress the Tiberius trust-cert warning for intentional local/self-signed targets"),
+    )
+    .arg(
         Arg::new("json")
             .long("json")
             .action(ArgAction::SetTrue)
             .global(true)
             .help("Output as JSON"),
+    )
+    .arg(
+        Arg::new("format")
+            .long("format")
+            .value_name("FORMAT")
+            .value_parser([
+                "pretty", "markdown", "md", "json", "tsv", "csv", "jsonl", "ndjson",
+            ])
+            .global(true)
+            .help("Output format: pretty, markdown, json, tsv, csv, or jsonl"),
     )
     .arg(
         Arg::new("markdown")
@@ -892,6 +1092,13 @@ fn command_sql(show_all: bool) -> Command {
                 .value_hint(ValueHint::FilePath),
         )
         .arg(
+            Arg::new("output")
+                .long("output")
+                .value_name("file|-")
+                .value_hint(ValueHint::FilePath)
+                .help("Write raw row output to a file or '-' for stdout"),
+        )
+        .arg(
             Arg::new("dry-run")
                 .long("dry-run")
                 .action(ArgAction::SetTrue),
@@ -906,6 +1113,37 @@ fn command_sql(show_all: bool) -> Command {
                 .long("no-truncate")
                 .action(ArgAction::SetTrue)
                 .help("Disable output truncation (default: cells >140 chars, total >25KB)"),
+        )
+        .arg(
+            Arg::new("no-headers")
+                .long("no-headers")
+                .action(ArgAction::SetTrue)
+                .help("Omit headers for TSV/CSV raw output"),
+        )
+        .arg(
+            Arg::new("raw")
+                .long("raw")
+                .action(ArgAction::SetTrue)
+                .help("Use raw values with no truncation or display formatting"),
+        )
+        .arg(
+            Arg::new("null")
+                .long("null")
+                .value_name("value")
+                .help("Null marker for TSV/CSV raw output"),
+        )
+        .arg(
+            Arg::new("result-set")
+                .long("result-set")
+                .value_name("n")
+                .value_parser(clap::value_parser!(usize))
+                .help("Select a 1-based result set for raw output"),
+        )
+        .arg(
+            Arg::new("all-result-sets")
+                .long("all-result-sets")
+                .action(ArgAction::SetTrue)
+                .help("Emit all result sets in raw output"),
         )
 }
 
@@ -1276,6 +1514,303 @@ fn command_compare(show_all: bool) -> Command {
     )
 }
 
+fn command_compare_counts(show_all: bool) -> Command {
+    command_advanced(
+        "compare-counts",
+        "Compare row counts across databases or connections",
+        &["counts"],
+        show_all,
+    )
+    .arg(Arg::new("source-db").long("source-db").value_name("name"))
+    .arg(Arg::new("target-db").long("target-db").value_name("name"))
+    .arg(
+        Arg::new("source-connection")
+            .long("source-connection")
+            .visible_alias("left-connection")
+            .value_name("CONN"),
+    )
+    .arg(
+        Arg::new("target-connection")
+            .long("target-connection")
+            .visible_alias("right-connection")
+            .value_name("CONN"),
+    )
+    .arg(
+        Arg::new("tables")
+            .long("tables")
+            .value_name("schema.table,...")
+            .use_value_delimiter(true)
+            .value_delimiter(','),
+    )
+    .arg(
+        Arg::new("tables-file")
+            .long("tables-file")
+            .value_name("path")
+            .value_hint(ValueHint::FilePath),
+    )
+    .arg(
+        Arg::new("dry-run")
+            .long("dry-run")
+            .action(ArgAction::SetTrue),
+    )
+}
+
+fn health_check_args(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("all-user-tables")
+            .long("all-user-tables")
+            .action(ArgAction::SetTrue),
+    )
+    .arg(Arg::new("schema").long("schema").value_name("name"))
+    .arg(
+        Arg::new("tables")
+            .long("tables")
+            .value_name("schema.table,...")
+            .use_value_delimiter(true)
+            .value_delimiter(','),
+    )
+    .arg(
+        Arg::new("tables-file")
+            .long("tables-file")
+            .value_name("path")
+            .value_hint(ValueHint::FilePath),
+    )
+    .arg(
+        Arg::new("dry-run")
+            .long("dry-run")
+            .action(ArgAction::SetTrue),
+    )
+}
+
+fn command_health(show_all: bool) -> Command {
+    command_advanced(
+        "health",
+        "SQL Server constraint, trigger, and identity health summaries",
+        &[],
+        show_all,
+    )
+    .subcommand(health_check_args(Command::new("constraints").about(
+        "Summarize foreign-key and check constraint enabled/trusted state",
+    )))
+    .subcommand(health_check_args(
+        Command::new("triggers").about("Summarize trigger enabled state"),
+    ))
+    .subcommand(health_check_args(
+        Command::new("identities").about("Summarize identity current values against max table ids"),
+    ))
+}
+
+fn command_admin(show_all: bool) -> Command {
+    let admin_sql = Command::new("sql")
+        .about("Run full-capability maintenance SQL")
+        .arg(
+            Arg::new("sql")
+                .index(1)
+                .allow_hyphen_values(true)
+                .value_name("SQL"),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    let backup_create = Command::new("create")
+        .about("Generate or run BACKUP DATABASE")
+        .arg(
+            Arg::new("database")
+                .long("database")
+                .value_name("name")
+                .required(true),
+        )
+        .arg(
+            Arg::new("to")
+                .long("to")
+                .value_name("sql-server-path")
+                .value_hint(ValueHint::FilePath)
+                .required(true)
+                .help("Backup path as resolved by SQL Server, often inside its host/container"),
+        )
+        .arg(
+            Arg::new("copy-only")
+                .long("copy-only")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("compression")
+                .long("compression")
+                .visible_alias("compress")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("checksum")
+                .long("checksum")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("stats")
+                .long("stats")
+                .value_name("n")
+                .value_parser(clap::value_parser!(u64)),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    let backup_verify = Command::new("verify")
+        .about("Generate or run RESTORE VERIFYONLY")
+        .arg(
+            Arg::new("from")
+                .long("from")
+                .value_name("sql-server-path")
+                .value_hint(ValueHint::FilePath)
+                .required(true)
+                .help("Backup path as resolved by SQL Server, often inside its host/container"),
+        )
+        .arg(
+            Arg::new("checksum")
+                .long("checksum")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    let backup_filelist = Command::new("filelist")
+        .about("Generate or run RESTORE FILELISTONLY")
+        .arg(
+            Arg::new("from")
+                .long("from")
+                .value_name("sql-server-path")
+                .value_hint(ValueHint::FilePath)
+                .required(true)
+                .help("Backup path as resolved by SQL Server, often inside its host/container"),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    let backup_restore_plan = Command::new("restore-plan")
+        .about("Plan a RESTORE DATABASE WITH MOVE workflow")
+        .arg(
+            Arg::new("from")
+                .long("from")
+                .value_name("sql-server-path")
+                .value_hint(ValueHint::FilePath)
+                .required(true)
+                .help("Backup path as resolved by SQL Server, often inside its host/container"),
+        )
+        .arg(
+            Arg::new("database")
+                .long("database")
+                .value_name("name")
+                .required(true),
+        )
+        .arg(
+            Arg::new("data-dir")
+                .long("data-dir")
+                .value_name("sql-server-dir")
+                .value_hint(ValueHint::DirPath)
+                .help("Data directory as resolved by SQL Server, often inside its host/container"),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    let backup_restore_test = Command::new("restore-test")
+        .about("Restore a backup into a verification database and optionally validate it")
+        .arg(
+            Arg::new("from")
+                .long("from")
+                .value_name("sql-server-path")
+                .value_hint(ValueHint::FilePath)
+                .required(true)
+                .help("Backup path as resolved by SQL Server, often inside its host/container"),
+        )
+        .arg(
+            Arg::new("database")
+                .long("database")
+                .value_name("name")
+                .required(true),
+        )
+        .arg(
+            Arg::new("data-dir")
+                .long("data-dir")
+                .value_name("sql-server-dir")
+                .value_hint(ValueHint::DirPath),
+        )
+        .arg(
+            Arg::new("drop-after")
+                .long("drop-after")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("compare-counts")
+                .long("compare-counts")
+                .value_name("schema.table,...")
+                .use_value_delimiter(true)
+                .value_delimiter(','),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    let backup = Command::new("backup")
+        .about("Backup, verify, filelist, and restore-test operations")
+        .subcommand(backup_create)
+        .subcommand(backup_verify)
+        .subcommand(backup_filelist)
+        .subcommand(backup_restore_plan)
+        .subcommand(backup_restore_test);
+
+    let checkdb = Command::new("checkdb")
+        .about("Generate or run DBCC CHECKDB")
+        .arg(
+            Arg::new("database")
+                .long("database")
+                .value_name("name")
+                .required(true),
+        )
+        .arg(
+            Arg::new("physical-only")
+                .long("physical-only")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("docker-volume-safe")
+                .long("docker-volume-safe")
+                .action(ArgAction::SetTrue)
+                .help(
+                    "Use TABLOCK to avoid SQL Server sparse snapshot files on unsupported volumes",
+                ),
+        )
+        .arg(
+            Arg::new("dry-run")
+                .long("dry-run")
+                .action(ArgAction::SetTrue),
+        );
+
+    command_advanced(
+        "admin",
+        "Full-capability SQL Server maintenance operations",
+        &["ops"],
+        show_all,
+    )
+    .subcommand(admin_sql)
+    .subcommand(backup)
+    .subcommand(checkdb)
+}
+
 fn command_init(show_all: bool) -> Command {
     command_core("init", "Create config file", &[], show_all)
         .arg(
@@ -1339,14 +1874,19 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
     let database = matches.get_one::<String>("database").cloned();
     let user = matches.get_one::<String>("user").cloned();
     let password = matches.get_one::<String>("password").cloned();
+    let password_env = matches.get_one::<String>("password-env").cloned();
     let timeout_ms = matches.get_one::<u64>("timeout").copied();
     let allow_write = matches.get_flag("allow-write");
     let encrypt = matches.get_one::<bool>("encrypt").copied();
     let trust_cert = matches.get_one::<bool>("trust-cert").copied();
+    let quiet_tls_warning = matches.get_flag("quiet-tls-warning");
     let output = OutputFlags {
         json: matches.get_flag("json"),
         markdown: matches.get_flag("markdown"),
         pretty: matches.get_flag("pretty"),
+        format: matches
+            .get_one::<String>("format")
+            .and_then(|value| OutputFormatArg::parse(value)),
     };
     let verbose = matches.get_count("verbose");
     let quiet = matches.get_flag("quiet");
@@ -1397,9 +1937,15 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
                 .unwrap_or_default(),
             max_rows: sub_m.get_one::<u64>("max-rows").copied(),
             csv: sub_m.get_one::<String>("csv").map(PathBuf::from),
+            output: sub_m.get_one::<String>("output").map(PathBuf::from),
             dry_run: sub_m.get_flag("dry-run"),
             continue_on_error: sub_m.get_flag("continue-on-error"),
             no_truncate: sub_m.get_flag("no-truncate"),
+            no_headers: sub_m.get_flag("no-headers"),
+            raw: sub_m.get_flag("raw"),
+            null_value: sub_m.get_one::<String>("null").cloned(),
+            result_set: sub_m.get_one::<usize>("result-set").copied(),
+            all_result_sets: sub_m.get_flag("all-result-sets"),
         }),
         Some(("table-data", sub_m)) => CommandKind::TableData(TableDataArgs {
             table: sub_m
@@ -1490,6 +2036,17 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
             include_drops: sub_m.get_flag("include-drops"),
             compact: sub_m.get_flag("compact"),
         }),
+        Some(("compare-counts", sub_m)) => CommandKind::CompareCounts(CompareCountsArgs {
+            source_db: sub_m.get_one::<String>("source-db").cloned(),
+            target_db: sub_m.get_one::<String>("target-db").cloned(),
+            source_connection: sub_m.get_one::<String>("source-connection").cloned(),
+            target_connection: sub_m.get_one::<String>("target-connection").cloned(),
+            tables: string_values(sub_m, "tables"),
+            tables_file: sub_m.get_one::<String>("tables-file").map(PathBuf::from),
+            dry_run: sub_m.get_flag("dry-run"),
+        }),
+        Some(("health", sub_m)) => CommandKind::Health(parse_health(sub_m)),
+        Some(("admin", sub_m)) => CommandKind::Admin(parse_admin(sub_m)),
         Some(("init", sub_m)) => CommandKind::Init(InitArgs {
             path: sub_m.get_one::<String>("path").map(PathBuf::from),
             force: sub_m.get_flag("force"),
@@ -1515,15 +2072,130 @@ fn parse_matches(matches: &ArgMatches) -> CliArgs {
         database,
         user,
         password,
+        password_env,
         timeout_ms,
         allow_write,
         encrypt,
         trust_cert,
+        quiet_tls_warning,
         output,
         verbose,
         quiet,
         quiet_target,
         command,
+    }
+}
+
+fn string_values(matches: &ArgMatches, name: &str) -> Option<Vec<String>> {
+    matches
+        .get_many::<String>(name)
+        .map(|values| values.map(|value| value.to_string()).collect())
+}
+
+fn parse_health(matches: &ArgMatches) -> HealthArgs {
+    let command = match matches.subcommand() {
+        Some(("constraints", sub_m)) => HealthCommand::Constraints(parse_health_check(sub_m)),
+        Some(("triggers", sub_m)) => HealthCommand::Triggers(parse_health_check(sub_m)),
+        Some(("identities", sub_m)) => HealthCommand::Identities(parse_health_check(sub_m)),
+        _ => HealthCommand::Help,
+    };
+    HealthArgs { command }
+}
+
+fn parse_health_check(matches: &ArgMatches) -> HealthCheckArgs {
+    HealthCheckArgs {
+        all_user_tables: matches.get_flag("all-user-tables"),
+        schema: matches.get_one::<String>("schema").cloned(),
+        tables: string_values(matches, "tables"),
+        tables_file: matches.get_one::<String>("tables-file").map(PathBuf::from),
+        dry_run: matches.get_flag("dry-run"),
+    }
+}
+
+fn parse_admin(matches: &ArgMatches) -> AdminArgs {
+    let command = match matches.subcommand() {
+        Some(("sql", sub_m)) => AdminCommand::Sql(AdminSqlArgs {
+            sql: sub_m.get_one::<String>("sql").cloned(),
+            dry_run: sub_m.get_flag("dry-run"),
+        }),
+        Some(("backup", sub_m)) => AdminCommand::Backup(parse_admin_backup(sub_m)),
+        Some(("checkdb", sub_m)) => AdminCommand::CheckDb(AdminCheckDbArgs {
+            database: sub_m
+                .get_one::<String>("database")
+                .cloned()
+                .expect("clap enforces required database"),
+            physical_only: sub_m.get_flag("physical-only"),
+            docker_volume_safe: sub_m.get_flag("docker-volume-safe"),
+            dry_run: sub_m.get_flag("dry-run"),
+        }),
+        _ => AdminCommand::Help,
+    };
+    AdminArgs { command }
+}
+
+fn parse_admin_backup(matches: &ArgMatches) -> AdminBackupCommand {
+    match matches.subcommand() {
+        Some(("create", sub_m)) => AdminBackupCommand::Create(AdminBackupCreateArgs {
+            database: sub_m
+                .get_one::<String>("database")
+                .cloned()
+                .expect("clap enforces required database"),
+            to: sub_m
+                .get_one::<String>("to")
+                .map(PathBuf::from)
+                .expect("clap enforces required path"),
+            copy_only: sub_m.get_flag("copy-only"),
+            compression: sub_m.get_flag("compression"),
+            checksum: sub_m.get_flag("checksum"),
+            stats: sub_m.get_one::<u64>("stats").copied(),
+            dry_run: sub_m.get_flag("dry-run"),
+        }),
+        Some(("verify", sub_m)) => AdminBackupCommand::Verify(AdminBackupVerifyArgs {
+            from: sub_m
+                .get_one::<String>("from")
+                .map(PathBuf::from)
+                .expect("clap enforces required path"),
+            checksum: sub_m.get_flag("checksum"),
+            dry_run: sub_m.get_flag("dry-run"),
+        }),
+        Some(("filelist", sub_m)) => AdminBackupCommand::Filelist(AdminBackupFilelistArgs {
+            from: sub_m
+                .get_one::<String>("from")
+                .map(PathBuf::from)
+                .expect("clap enforces required path"),
+            dry_run: sub_m.get_flag("dry-run"),
+        }),
+        Some(("restore-plan", sub_m)) => {
+            AdminBackupCommand::RestorePlan(AdminBackupRestorePlanArgs {
+                from: sub_m
+                    .get_one::<String>("from")
+                    .map(PathBuf::from)
+                    .expect("clap enforces required path"),
+                database: sub_m
+                    .get_one::<String>("database")
+                    .cloned()
+                    .expect("clap enforces required database"),
+                data_dir: sub_m.get_one::<String>("data-dir").map(PathBuf::from),
+                dry_run: sub_m.get_flag("dry-run"),
+            })
+        }
+        Some(("restore-test", sub_m)) => {
+            AdminBackupCommand::RestoreTest(AdminBackupRestoreTestArgs {
+                from: sub_m
+                    .get_one::<String>("from")
+                    .map(PathBuf::from)
+                    .expect("clap enforces required path"),
+                database: sub_m
+                    .get_one::<String>("database")
+                    .cloned()
+                    .expect("clap enforces required database"),
+                data_dir: sub_m.get_one::<String>("data-dir").map(PathBuf::from),
+                drop_after: sub_m.get_flag("drop-after"),
+                compare_counts: string_values(sub_m, "compare-counts"),
+                dry_run: sub_m.get_flag("dry-run"),
+            })
+        }
+        _ => AdminBackupCommand::Help,
     }
 }
 
@@ -1679,6 +2351,54 @@ mod tests {
             CommandKind::Sql(cmd) => {
                 assert!(cmd.dry_run);
                 assert_eq!(cmd.sql.as_deref(), Some("SELECT 1"));
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_global_raw_output_flags() {
+        let args = parse_args_from([
+            "sscli",
+            "--format",
+            "tsv",
+            "--no-headers",
+            "--raw",
+            "--output",
+            "counts.tsv",
+            "SELECT 1 AS value",
+        ]);
+        assert_eq!(args.output.format, Some(super::OutputFormatArg::Tsv));
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1 AS value"));
+                assert!(cmd.no_headers);
+                assert!(cmd.raw);
+                assert_eq!(
+                    cmd.output.as_ref().map(|path| path.as_os_str()),
+                    Some(std::ffi::OsStr::new("counts.tsv"))
+                );
+            }
+            other => panic!("expected sql command, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn bare_sql_shorthand_accepts_quiet_tls_warning_flag() {
+        let args = parse_args_from([
+            "sscli",
+            "--trust-cert",
+            "true",
+            "--quiet-tls-warning",
+            "SELECT 1 AS value",
+        ]);
+        assert_eq!(args.trust_cert, Some(true));
+        assert!(args.quiet_tls_warning);
+
+        match args.command {
+            CommandKind::Sql(cmd) => {
+                assert_eq!(cmd.sql.as_deref(), Some("SELECT 1 AS value"));
             }
             other => panic!("expected sql command, got: {:?}", other),
         }

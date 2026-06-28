@@ -17,8 +17,56 @@ fn config_command_emits_json() {
     assert_eq!(value["connection"]["server"], "env-host");
     assert_eq!(value["connection"]["database"], "env-db");
     assert_eq!(value["connection"]["user"], "env-user");
-    assert_eq!(value["connection"]["password"], "env-pass");
+    assert!(value["connection"]["password"].is_null());
+    assert_eq!(value["connection"]["passwordSet"], true);
+    assert_eq!(value["connection"]["passwordSource"], "env");
     assert!(value["settings"].get("allowWriteDefault").is_none());
+}
+
+#[test]
+fn config_command_uses_password_env_flag_without_exposing_secret() {
+    let mut cmd = cargo_bin_cmd!("sscli");
+    cmd.args([
+        "config",
+        "--json",
+        "--user",
+        "sa",
+        "--password-env",
+        "PLQ_SQL_PASSWORD",
+    ])
+    .env("PLQ_SQL_PASSWORD", "super-secret");
+
+    let output = cmd.assert().success().get_output().stdout.clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+
+    assert_eq!(value["connection"]["user"], "sa");
+    assert!(value["connection"]["password"].is_null());
+    assert_eq!(value["connection"]["passwordSet"], true);
+    assert_eq!(value["connection"]["passwordSource"], "env");
+    assert_eq!(value["connection"]["passwordEnv"], "PLQ_SQL_PASSWORD");
+}
+
+#[test]
+fn config_command_uses_sscli_url_query_options() {
+    let mut cmd = cargo_bin_cmd!("sscli");
+    cmd.args(["config", "--json"]).env(
+        "SSCLI_URL",
+        "sqlserver://sa:secret@127.0.0.1:15433/WDM_VERIFY?trustServerCertificate=false&encrypt=false&timeoutMs=12345",
+    );
+
+    let output = cmd.assert().success().get_output().stdout.clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+
+    assert_eq!(value["connection"]["server"], "127.0.0.1");
+    assert_eq!(value["connection"]["port"], 15433);
+    assert_eq!(value["connection"]["database"], "WDM_VERIFY");
+    assert_eq!(value["connection"]["user"], "sa");
+    assert!(value["connection"]["password"].is_null());
+    assert_eq!(value["connection"]["passwordSet"], true);
+    assert_eq!(value["connection"]["passwordSource"], "url");
+    assert_eq!(value["connection"]["trustCert"], false);
+    assert_eq!(value["connection"]["encrypt"], false);
+    assert_eq!(value["connection"]["timeoutMs"], 12345);
 }
 
 #[test]

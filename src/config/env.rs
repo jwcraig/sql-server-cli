@@ -40,6 +40,15 @@ impl Env {
         }
         None
     }
+
+    pub fn get_any_with_key(&self, keys: &[&str]) -> Option<(String, String)> {
+        for key in keys {
+            if let Some(value) = self.vars.get(*key) {
+                return Some(((*key).to_string(), value.clone()));
+            }
+        }
+        None
+    }
 }
 
 pub fn parse_bool(input: &str) -> Option<bool> {

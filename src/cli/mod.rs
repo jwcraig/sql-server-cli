@@ -1,10 +1,14 @@
 mod args;
 
 pub use args::{
-    BackupsArgs, CliArgs, ColumnsArgs, CommandKind, CompareArgs, CompletionsArgs, ConfigArgs,
-    DatabasesArgs, DescribeArgs, ForeignKeysArgs, IndexesArgs, InitArgs, IntegrationCommand,
-    IntegrationInstallArgs, IntegrationsArgs, OutputFlags, QueryStatsArgs, SessionsArgs, SqlArgs,
-    StatusArgs, StoredProcsArgs, TableDataArgs, TablesArgs, UpdateArgs, build_cli,
+    AdminArgs, AdminBackupCommand, AdminBackupCreateArgs, AdminBackupFilelistArgs,
+    AdminBackupRestorePlanArgs, AdminBackupRestoreTestArgs, AdminBackupVerifyArgs,
+    AdminCheckDbArgs, AdminCommand, AdminSqlArgs, BackupsArgs, CliArgs, ColumnsArgs, CommandKind,
+    CompareArgs, CompareCountsArgs, CompletionsArgs, ConfigArgs, DatabasesArgs, DescribeArgs,
+    ForeignKeysArgs, HealthArgs, HealthCheckArgs, HealthCommand, IndexesArgs, InitArgs,
+    IntegrationCommand, IntegrationInstallArgs, IntegrationsArgs, OutputFlags, OutputFormatArg,
+    QueryStatsArgs, SessionsArgs, SqlArgs, StatusArgs, StoredProcsArgs, TableDataArgs, TablesArgs,
+    UpdateArgs, build_cli,
 };
 
 pub fn parse() -> CliArgs {
