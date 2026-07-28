@@ -55,6 +55,39 @@ sscli admin backup verify --from /var/opt/mssql/backup/WDM.bak --checksum --dry-
 sscli compare-counts --source-db WDM_A --target-db WDM_B --tables dbo.TableA,dbo.TableB
 ```
 
+## Proving that maintenance SQL took effect
+
+`sscli admin sql` and `sscli sql` always print an `Execution` summary
+(`Status`, `Batches`, `ResultSets`, `RowsReturned`, `ElapsedMs`), so a run that
+produced no result sets is still visibly distinct from a command that never ran.
+
+The summary proves the statement executed, not that it changed anything: DDL
+such as `DROP DATABASE IF EXISTS` reports `Status ok` even when it was a no-op.
+For destructive or state-changing work, attach a read-back with `--verify` and
+assert it with `--expect-rows`. The read-back runs on the same connection and a
+mismatch exits non-zero.
+
+```bash
+# Drop a database and prove it is gone in one command
+sscli admin sql "DROP DATABASE [WDM_VERIFY];" \
+  --verify "SELECT name FROM sys.databases WHERE name = 'WDM_VERIFY'" \
+  --expect-rows 0
+
+# Prove a database was created
+sscli admin sql "CREATE DATABASE [WDM_VERIFY];" \
+  --verify "SELECT name FROM sys.databases WHERE name = 'WDM_VERIFY'" \
+  --expect-rows 1
+```
+
+Never report a maintenance statement as successful based on exit status alone
+when the statement had no observable output. Use `--verify` or run an explicit
+read-back query.
+
+A failed batch is not a rollback. `Batches 0 of 1 succeeded` means the batch did
+not complete; semicolon-separated statements before the failing one have already
+committed. Never report a failed `admin sql` run as "nothing happened" — read the
+state back first. JSON callers can check `partialEffectPossible`.
+
 ## Compare (schema drift)
 
 Use `compare` to spot differences between environments. It is read-only and safe.

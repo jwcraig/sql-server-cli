@@ -200,6 +200,15 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     };
 
     let display_sets = truncate_result_sets(&result_sets, max_rows);
+    if display_sets.is_empty() {
+        // Statements such as DDL return no result sets. Without this summary the
+        // command would print nothing at all and a caller could not tell a
+        // successful run from one that never executed.
+        println!(
+            "{}",
+            render_execution_summary(&batch_results, errors.is_empty(), format).output
+        );
+    }
     for (idx, result_set) in display_sets.iter().enumerate() {
         if display_sets.len() > 1 {
             println!("Result set {}", idx + 1);
@@ -267,6 +276,30 @@ fn truncate_result_sets(result_sets: &[ResultSet], max_rows: usize) -> Vec<Resul
             }
         })
         .collect()
+}
+
+/// Render the run summary shown when a script produces no result sets.
+fn render_execution_summary(
+    batches: &[BatchResult],
+    success: bool,
+    format: OutputFormat,
+) -> crate::output::RenderResult {
+    let succeeded = batches.iter().filter(|batch| batch.success).count();
+    let elapsed_ms: u128 = batches.iter().map(|batch| batch.elapsed_ms).sum();
+    let rows = vec![
+        (
+            "Status".to_string(),
+            if success { "ok" } else { "failed" }.to_string(),
+        ),
+        (
+            "Batches".to_string(),
+            format!("{} of {} succeeded", succeeded, batches.len()),
+        ),
+        ("ResultSets".to_string(), "0".to_string()),
+        ("RowsReturned".to_string(), "0".to_string()),
+        ("ElapsedMs".to_string(), elapsed_ms.to_string()),
+    ];
+    table::render_key_value_table("Execution", &rows, format, &TableOptions::default())
 }
 
 fn batch_to_json(batch: &BatchResult) -> serde_json::Value {

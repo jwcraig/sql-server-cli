@@ -24,4 +24,7 @@ These commands run the local `sscli` CLI and inject output into the prompt.
 - Prefer `--password-env NAME` or `SSCLI_URL` over `--password value`.
 - Use `--quiet-tls-warning` when `--trust-cert true` is intentional and verbose logs would otherwise add TLS noise.
 - Use `sscli admin ... --dry-run` for SQL Server maintenance planning before execution.
+- `sscli admin sql` and `sscli sql` always print an `Execution` summary, so a statement with no result sets is still visibly distinct from one that never ran.
+- A summary of `Status ok` proves execution, not effect. For destructive SQL add `--verify "<read-back query>" --expect-rows N`; a mismatch exits non-zero.
+- A failed batch is not a rollback: statements before the failing one in that batch have committed. Read the state back instead of reporting "nothing happened".
 - Output is truncated by default (cells >140 chars, total >25KB). Use `--no-truncate` for full output.

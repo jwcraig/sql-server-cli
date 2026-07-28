@@ -269,6 +269,10 @@ pub enum AdminCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminSqlArgs {
     pub sql: Option<String>,
+    /// Optional read-back query executed after the maintenance SQL on the same connection.
+    pub verify: Option<String>,
+    /// Row count `--verify` must return, otherwise the command fails.
+    pub expect_rows: Option<usize>,
     pub dry_run: bool,
 }
 
@@ -1610,6 +1614,21 @@ fn command_admin(show_all: bool) -> Command {
                 .value_name("SQL"),
         )
         .arg(
+            Arg::new("verify")
+                .long("verify")
+                .value_name("SQL")
+                .allow_hyphen_values(true)
+                .help("Read-back query run after the maintenance SQL on the same connection"),
+        )
+        .arg(
+            Arg::new("expect-rows")
+                .long("expect-rows")
+                .value_name("N")
+                .value_parser(clap::value_parser!(usize))
+                .requires("verify")
+                .help("Fail unless --verify returns exactly N rows"),
+        )
+        .arg(
             Arg::new("dry-run")
                 .long("dry-run")
                 .action(ArgAction::SetTrue),
@@ -2116,6 +2135,8 @@ fn parse_admin(matches: &ArgMatches) -> AdminArgs {
     let command = match matches.subcommand() {
         Some(("sql", sub_m)) => AdminCommand::Sql(AdminSqlArgs {
             sql: sub_m.get_one::<String>("sql").cloned(),
+            verify: sub_m.get_one::<String>("verify").cloned(),
+            expect_rows: sub_m.get_one::<usize>("expect-rows").copied(),
             dry_run: sub_m.get_flag("dry-run"),
         }),
         Some(("backup", sub_m)) => AdminCommand::Backup(parse_admin_backup(sub_m)),

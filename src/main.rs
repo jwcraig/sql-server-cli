@@ -33,7 +33,10 @@ fn run() -> anyhow::Result<()> {
 
 fn init_logging(args: &cli::CliArgs) {
     let mut filter = match args.verbose {
-        0 => "warn,tiberius=error",
+        // Tiberius logs every server token error at ERROR level before returning
+        // it, which duplicates sscli's own error output above the structured
+        // summary. Silence it by default; `-v` and above restore driver logs.
+        0 => "warn,tiberius=off",
         1 => "info",
         2 => "debug",
         _ => "trace",
