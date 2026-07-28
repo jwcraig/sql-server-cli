@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
@@ -800,7 +800,7 @@ fn build_restore_database_sql(
         moves.push(format!(
             "MOVE {} TO {}",
             sql_fragments::quote_string(&file.logical_name),
-            sql_fragments::quote_string(&sql_fragments::path_for_sql(&path))
+            sql_fragments::quote_string(&path)
         ));
     }
 
@@ -822,13 +822,32 @@ WITH {options};",
     ))
 }
 
+/// Join a SQL Server directory and file name without importing the host's path
+/// separator.
+///
+/// The result is interpreted by SQL Server, which routinely runs on a different
+/// OS than sscli. `PathBuf::join` uses the separator of the machine sscli runs
+/// on, so building the POSIX path `/var/opt/mssql/data` on Windows would yield
+/// `/var/opt/mssql/data\WDM.mdf` and produce an unusable RESTORE statement.
+fn join_sql_server_path(data_dir: &Path, filename: &str) -> String {
+    let dir = sql_fragments::path_for_sql(data_dir);
+    let trimmed = dir.trim_end_matches(['/', '\\']);
+    // Only a path that uses backslashes and no forward slashes is a Windows path.
+    let separator = if trimmed.contains('\\') && !trimmed.contains('/') {
+        '\\'
+    } else {
+        '/'
+    };
+    format!("{}{}{}", trimmed, separator, filename)
+}
+
 fn restore_file_path(
     database: &str,
     data_dir: &Path,
     file: &RestoreFile,
     data_seen: &mut usize,
     log_seen: &mut usize,
-) -> PathBuf {
+) -> String {
     let safe_database = sanitize_file_component(database);
     let is_log = file.file_type.eq_ignore_ascii_case("L");
     let filename = if is_log {
@@ -848,7 +867,7 @@ fn restore_file_path(
         *data_seen += 1;
         format!("{}{}.mdf", safe_database, suffix)
     };
-    data_dir.join(filename)
+    join_sql_server_path(data_dir, &filename)
 }
 
 fn sanitize_file_component(value: &str) -> String {
@@ -888,7 +907,7 @@ mod tests {
 
     use super::{
         AdminExecution, BatchOutcome, RestoreFile, VerifyOutcome, build_restore_database_sql,
-        execution_to_json,
+        execution_to_json, join_sql_server_path,
     };
 
     fn batch(index: usize, error: Option<&str>) -> BatchOutcome {
@@ -1012,6 +1031,24 @@ mod tests {
         assert_eq!(payload["verify"]["rows"], 1);
         assert_eq!(payload["verify"]["expectedRows"], 0);
         assert_eq!(payload["verify"]["passed"], false);
+    }
+
+    /// SQL Server interprets these paths, so they must not pick up the host's
+    /// separator. This failed on Windows runners before `join_sql_server_path`.
+    #[test]
+    fn sql_server_paths_keep_their_own_separator_regardless_of_host() {
+        assert_eq!(
+            join_sql_server_path(Path::new("/var/opt/mssql/data"), "WDM.mdf"),
+            "/var/opt/mssql/data/WDM.mdf"
+        );
+        assert_eq!(
+            join_sql_server_path(Path::new("/var/opt/mssql/data/"), "WDM.mdf"),
+            "/var/opt/mssql/data/WDM.mdf"
+        );
+        assert_eq!(
+            join_sql_server_path(Path::new(r"C:\SQLData"), "WDM.mdf"),
+            r"C:\SQLData\WDM.mdf"
+        );
     }
 
     #[test]
