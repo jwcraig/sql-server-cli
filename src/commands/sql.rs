@@ -58,8 +58,7 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     let params = sql_utils::parse_params(&cmd.params)
         .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
 
-    let mut batches = sql_utils::split_batches(&sql_text);
-    batches.retain(|batch| !batch.trim().is_empty());
+    let batches = sql_utils::split_batches(&sql_text);
 
     if batches.is_empty() {
         return Err(anyhow!("No SQL batches found"));

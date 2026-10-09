@@ -106,3 +106,29 @@ fn sql_stops_at_first_failing_batch_and_rolls_back_open_transaction() {
         serde_json::Value::Null
     );
 }
+
+#[test]
+fn sql_sends_batch_text_verbatim_like_sqlcmd() {
+    if !common::integration_enabled() {
+        return;
+    }
+    // The server stores a module's batch text as its definition, so trailing
+    // blank lines and whitespace must survive the GO split.
+    let body = "\r\nCREATE PROCEDURE #sscli_def_probe\r\nAS\r\n\tSELECT 1;  \r\n\r\n";
+    let script = format!(
+        "\u{feff}{body}GO\r\nSELECT m.definition FROM tempdb.sys.sql_modules m \
+         WHERE m.object_id = OBJECT_ID(N'tempdb..#sscli_def_probe');\r\n"
+    );
+
+    let output = cargo_bin_cmd!("sscli")
+        .args(["sql", "--json", "--stdin"])
+        .write_stdin(script)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["resultSets"][0]["rows"][0][0], body);
+}
