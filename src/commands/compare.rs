@@ -131,7 +131,9 @@ pub fn run(args: &CliArgs, cmd: &CompareArgs) -> Result<()> {
     let target_cfg = apply_connection_override(
         resolve_profile(
             &base_overrides,
-            Some(target_profile.as_str()).filter(|_| cmd.target_connection.is_none()),
+            cmd.target_connection
+                .is_none()
+                .then_some(target_profile.as_str()),
         )?,
         &cmd.target_connection,
     )?;
