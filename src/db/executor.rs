@@ -15,6 +15,47 @@ pub async fn run_query(
     collect_result_sets(stream).await
 }
 
+/// Run one script batch (the text between two `GO` lines) the way `sqlcmd` does.
+///
+/// A batch without parameters goes to the server as a plain SQL batch, so session
+/// state it leaves behind (an open transaction, `SET` options, `USE`, `#temp`
+/// tables) carries over to the next batch on the same connection. `Query` would
+/// wrap it in `sp_executesql`, whose scope discards that state and rejects a
+/// transaction left open with error 266.
+///
+/// A batch with parameters still needs `sp_executesql`, so a transaction cannot
+/// stay open across it.
+///
+/// # Arguments
+///
+/// * `batch` - SQL text of a single batch, without the `GO` separator
+/// * `params` - values bound to `@P1..@Pn`; empty for a plain batch
+/// * `client` - the connection every batch of the script shares
+///
+/// # Errors
+///
+/// Returns the first server error of the batch, after the server has finished
+/// the batch, as `sqlcmd -b` would report it.
+pub async fn run_batch<'a>(
+    batch: &'a str,
+    params: &[&'a str],
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+) -> Result<Vec<ResultSet>> {
+    if !params.is_empty() {
+        let mut query = tiberius::Query::new(batch);
+        for param in params {
+            query.bind(*param);
+        }
+        return run_query(query, client).await;
+    }
+
+    let stream = client
+        .simple_query(batch)
+        .await
+        .map_err(|err| AppError::new(ErrorKind::Query, err.to_string()))?;
+    collect_result_sets(stream).await
+}
+
 pub async fn collect_result_sets(stream: tiberius::QueryStream<'_>) -> Result<Vec<ResultSet>> {
     let mut stream = stream;
     let mut collector = ResultSetCollector::default();

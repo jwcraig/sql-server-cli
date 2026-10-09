@@ -59,6 +59,9 @@ pub enum OutputFormat {
     Pretty,
     Markdown,
     Json,
+    Tsv,
+    Csv,
+    Jsonl,
 }
 
 impl OutputFormat {
@@ -67,6 +70,9 @@ impl OutputFormat {
             OutputFormat::Pretty => "pretty",
             OutputFormat::Markdown => "markdown",
             OutputFormat::Json => "json",
+            OutputFormat::Tsv => "tsv",
+            OutputFormat::Csv => "csv",
+            OutputFormat::Jsonl => "jsonl",
         }
     }
 }

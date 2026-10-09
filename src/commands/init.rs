@@ -5,13 +5,14 @@ use anyhow::{Result, anyhow};
 use serde_json::json;
 
 use crate::cli::{CliArgs, InitArgs};
-use crate::commands::common;
-use crate::config::OutputFormat;
-use crate::output::json as json_out;
+use crate::config::{OutputFormat, SettingsResolved};
+use crate::output::{self, json as json_out};
 
 pub fn run(args: &CliArgs, cmd: &InitArgs) -> Result<()> {
-    let resolved = common::load_config(args)?;
-    let format = common::output_format(args, &resolved);
+    // `init` creates the config, so it uses default output settings rather
+    // than resolving a profile that may not exist yet.
+    let settings = SettingsResolved::default();
+    let format = output::select_format(&args.output, &settings);
 
     let profile_name = cmd.profile.as_deref().unwrap_or("default");
     let target = resolve_target_path(cmd.path.as_ref())?;
@@ -37,7 +38,7 @@ pub fn run(args: &CliArgs, cmd: &InitArgs) -> Result<()> {
             "created": true,
             "overwritten": cmd.force,
         });
-        let body = json_out::emit_json_value(&payload, common::json_pretty(&resolved))?;
+        let body = json_out::emit_json_value(&payload, settings.output.json.pretty)?;
         println!("{}", body);
     } else {
         println!("Wrote config to {}", target.display());

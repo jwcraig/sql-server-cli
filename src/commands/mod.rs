@@ -1,12 +1,15 @@
+mod admin;
 mod backups;
 mod columns;
 mod common;
 mod compare;
+mod compare_counts;
 mod completions;
 mod config;
 mod databases;
 mod describe;
 mod foreign_keys;
+mod health;
 mod help;
 mod indexes;
 mod init;
@@ -16,6 +19,7 @@ mod paging;
 mod query_stats;
 mod sessions;
 mod sql;
+mod sql_fragments;
 mod sql_utils;
 mod status;
 mod stored_procs;
@@ -46,6 +50,9 @@ pub fn dispatch(args: &CliArgs) -> Result<()> {
         CommandKind::QueryStats(cmd) => query_stats::run(args, cmd),
         CommandKind::Backups(cmd) => backups::run(args, cmd),
         CommandKind::Compare(cmd) => compare::run(args, cmd),
+        CommandKind::CompareCounts(cmd) => compare_counts::run(args, cmd),
+        CommandKind::Health(cmd) => health::run(args, cmd),
+        CommandKind::Admin(cmd) => admin::run(args, cmd),
         CommandKind::Init(cmd) => init::run(args, cmd),
         CommandKind::Config(_) => config::run(args),
         CommandKind::Completions(cmd) => completions::run(args, cmd),

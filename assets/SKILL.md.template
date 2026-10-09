@@ -1,6 +1,6 @@
 ---
 name: {name}
-description: When you need to connect to a SQL Server host/database to inspect schemas, check status, sample table data, or run ad-hoc queries, use the `sscli` CLI. Prefer markdown output for token efficiency (default) and `--json` for machine-readable results.
+description: When you need to connect to a SQL Server host/database to inspect schemas, check status, sample table data, run ad-hoc queries, or capture SQL Server evidence files, use the `sscli` CLI. Prefer markdown output for token-efficient reading, `--json` for structured command results, and `--format tsv|csv|jsonl` for raw row evidence.
 ---
 
 # SQL Server CLI (agent workflow)
@@ -15,20 +15,88 @@ sscli tables
 sscli describe <Object> #automatic detection of Object type. Returns descriptions for all matching Objects (tables, view, triggers, procs)
 sscli sql "SELECT TOP 10 * FROM <TableName/ViewName>"
 sscli "SELECT COUNT(*) FROM <TableName/ViewName>"
+sscli --format tsv --no-headers "SELECT COUNT_BIG(*) FROM <TableName/ViewName>"
 ```
 
 ## Output guidance
 
 - Default output is markdown (token-friendly).
 - For machine-readable results, add `--json`.
+- For shell-diffable row evidence, use `--format tsv --no-headers --raw`.
+- For row streams consumed by scripts, use `--format jsonl`.
+- Raw row formats keep stdout data-only; diagnostics stay on stderr.
+- `sql --json` returns `{ success, batches, resultSets: [{ columns, rows }] }`;
+  rows are arrays in column order.
 - Output is truncated by default (cells >140 chars, total >25KB). Use `--no-truncate` for full output when you need complete data.
+
+## Connection and secrets
+
+- Prefer `--password-env NAME` over `--password value`.
+- Use `--quiet-tls-warning` when `--trust-cert true` is intentional and evidence output must stay clean.
+- For ephemeral restore containers, prefer `SSCLI_URL`:
+
+```bash
+export SSCLI_URL='sqlserver://sa:...@127.0.0.1:15433/WDM?trustServerCertificate=true'
+sscli status
+```
+
+- `config --json` reports whether a password is set, but does not print the secret.
 
 ## Safety
 
-- `sscli sql` is the canonical raw-SQL surface.
+- `sscli sql` is the canonical raw-SQL surface. It runs any statement,
+  writes included, so check the `Target:` banner (host, database, profile and
+  config file) before a write.
 - For file-backed or batch-oriented execution, prefer `sscli sql --file ...` or
-  `sscli sql --stdin`.
+  `sscli sql --stdin`. Multi-batch `GO` scripts run like `sqlcmd -b`: one
+  session, transactions and `SET` options carry across batches, and the first
+  failing batch stops the script (`Batch N of M failed: ...`) and rolls back
+  any open transaction. No need to fall back to `sqlcmd`.
+- Name the target explicitly with `--profile <name>`. An unknown profile is an
+  error; with no config at all, sscli warns that it is using
+  `localhost:1433/master`.
 - Prefer explicit `--env-file` when loading connection settings from a file.
+
+For planned maintenance, prefer explicit admin commands over dropping to `sqlcmd`:
+
+```bash
+sscli admin checkdb --database WDM --physical-only --docker-volume-safe --dry-run
+sscli admin backup verify --from /var/opt/mssql/backup/WDM.bak --checksum --dry-run
+sscli compare-counts --source-db WDM_A --target-db WDM_B --tables dbo.TableA,dbo.TableB
+```
+
+## Proving that maintenance SQL took effect
+
+`sscli admin sql` and `sscli sql` always print an `Execution` summary
+(`Status`, `Batches`, `ResultSets`, `RowsReturned`, `ElapsedMs`), so a run that
+produced no result sets is still visibly distinct from a command that never ran.
+
+The summary proves the statement executed, not that it changed anything: DDL
+such as `DROP DATABASE IF EXISTS` reports `Status ok` even when it was a no-op.
+For destructive or state-changing work, attach a read-back with `--verify` and
+assert it with `--expect-rows`. The read-back runs on the same connection and a
+mismatch exits non-zero.
+
+```bash
+# Drop a database and prove it is gone in one command
+sscli admin sql "DROP DATABASE [WDM_VERIFY];" \
+  --verify "SELECT name FROM sys.databases WHERE name = 'WDM_VERIFY'" \
+  --expect-rows 0
+
+# Prove a database was created
+sscli admin sql "CREATE DATABASE [WDM_VERIFY];" \
+  --verify "SELECT name FROM sys.databases WHERE name = 'WDM_VERIFY'" \
+  --expect-rows 1
+```
+
+Never report a maintenance statement as successful based on exit status alone
+when the statement had no observable output. Use `--verify` or run an explicit
+read-back query.
+
+A failed batch is not a rollback. `Batches 0 of 1 succeeded` means the batch did
+not complete; semicolon-separated statements before the failing one have already
+committed. Never report a failed `admin sql` run as "nothing happened" — read the
+state back first. JSON callers can check `partialEffectPossible`.
 
 ## Compare (schema drift)
 

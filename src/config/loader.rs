@@ -19,6 +19,7 @@ pub struct CliOverrides {
     pub database: Option<String>,
     pub user: Option<String>,
     pub password: Option<String>,
+    pub password_env: Option<String>,
     pub timeout_ms: Option<u64>,
     pub encrypt: Option<bool>,
     pub trust_cert: Option<bool>,
@@ -38,7 +39,20 @@ pub struct ResolvedConfig {
     pub profile_name: String,
     pub connection: ConnectionSettings,
     pub settings: SettingsResolved,
+    /// True when no config file, `--server` or env var named a server, so the
+    /// target is the built-in `localhost:1433/master` default.
+    pub uses_builtin_target: bool,
 }
+
+const DEFAULT_PROFILE: &str = "default";
+const URL_ENV_KEYS: &[&str] = &["SSCLI_URL", "DATABASE_URL", "DB_URL", "SQLSERVER_URL"];
+const SERVER_ENV_KEYS: &[&str] = &[
+    "SQL_SERVER",
+    "SQLSERVER_HOST",
+    "DB_HOST",
+    "MSSQL_HOST",
+    "SQLCMDSERVER",
+];
 
 #[derive(Debug, Clone)]
 pub struct ConnectionSettings {
@@ -47,10 +61,35 @@ pub struct ConnectionSettings {
     pub database: String,
     pub user: Option<String>,
     pub password: Option<String>,
+    pub password_source: PasswordSource,
+    pub password_env: Option<String>,
     pub encrypt: bool,
     pub trust_cert: bool,
     pub timeout_ms: u64,
     pub default_schemas: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordSource {
+    None,
+    Cli,
+    Env,
+    Profile,
+    Url,
+    Stdin,
+}
+
+impl PasswordSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PasswordSource::None => "none",
+            PasswordSource::Cli => "cli",
+            PasswordSource::Env => "env",
+            PasswordSource::Profile => "profile",
+            PasswordSource::Url => "url",
+            PasswordSource::Stdin => "stdin",
+        }
+    }
 }
 
 impl Default for ConnectionSettings {
@@ -61,6 +100,8 @@ impl Default for ConnectionSettings {
             database: "master".to_string(),
             user: None,
             password: None,
+            password_source: PasswordSource::None,
+            password_env: None,
             encrypt: true,
             trust_cert: true,
             timeout_ms: 30_000,
@@ -116,7 +157,11 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
         None => ConfigFile::default(),
     };
 
-    let profile_name = resolve_profile_name(options, env, config_file.default_profile.as_deref());
+    let requested_profile =
+        resolve_profile_name(options, env, config_file.default_profile.as_deref());
+    let profile_name = requested_profile
+        .clone()
+        .unwrap_or_else(|| DEFAULT_PROFILE.to_string());
     let profile_from_cli = options.cli.profile.is_some();
 
     let mut connection = ConnectionSettings::default();
@@ -126,8 +171,18 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
         apply_settings(&mut settings, settings_cfg);
     }
 
-    if let Some(profile) = config_file.profiles.get(&profile_name) {
-        apply_profile(&mut connection, &mut settings, profile, env);
+    match config_file.profiles.get(&profile_name) {
+        Some(profile) => apply_profile(&mut connection, &mut settings, profile, env),
+        // A named profile that does not exist used to fall through to the
+        // built-in localhost default, so a typo silently targeted another server.
+        None if requested_profile.is_some() => {
+            return Err(missing_profile_error(
+                &profile_name,
+                config_path.as_deref(),
+                &config_file,
+            ));
+        }
+        None => {}
     }
 
     // Only let ambient env vars override when the profile was NOT explicitly set via CLI.
@@ -136,27 +191,65 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
     if !profile_from_cli {
         apply_env_overrides(&mut connection, &mut settings, env);
     }
-    apply_cli_overrides(&mut connection, &mut settings, &options.cli);
+    apply_cli_overrides(&mut connection, &mut settings, &options.cli, env)?;
+
+    let uses_builtin_target = config_path.is_none()
+        && options.cli.server.is_none()
+        && env.get_any(URL_ENV_KEYS).is_none()
+        && env.get_any(SERVER_ENV_KEYS).is_none();
 
     Ok(ResolvedConfig {
         config_path,
         profile_name,
         connection,
         settings,
+        uses_builtin_target,
     })
 }
 
-fn resolve_profile_name(options: &LoadOptions, env: &Env, default_profile: Option<&str>) -> String {
-    if let Some(profile) = options.cli.profile.as_deref() {
-        return profile.to_string();
-    }
-    if let Some(profile) = env.get_any(&["SQL_SERVER_PROFILE", "SQLSERVER_PROFILE"]) {
-        return profile;
-    }
-    if let Some(profile) = default_profile {
-        return profile.to_string();
-    }
-    "default".to_string()
+/// Return the profile the caller asked for, or `None` when nothing named one.
+///
+/// A name from `--profile`, `SQL_SERVER_PROFILE` or the config's `defaultProfile`
+/// must exist; only the implicit `default` may be absent.
+fn resolve_profile_name(
+    options: &LoadOptions,
+    env: &Env,
+    default_profile: Option<&str>,
+) -> Option<String> {
+    options
+        .cli
+        .profile
+        .clone()
+        .or_else(|| env.get_any(&["SQL_SERVER_PROFILE", "SQLSERVER_PROFILE"]))
+        .or_else(|| default_profile.map(str::to_string))
+}
+
+/// Build the error for a named profile that the config does not define.
+fn missing_profile_error(
+    name: &str,
+    config_path: Option<&Path>,
+    config_file: &ConfigFile,
+) -> anyhow::Error {
+    let Some(path) = config_path else {
+        return anyhow!(
+            "Profile '{}' requested but no config file was found. Create \
+             .sql-server/config.yaml, pass --config, or connect with --server.",
+            name
+        );
+    };
+    let mut available: Vec<&str> = config_file.profiles.keys().map(String::as_str).collect();
+    available.sort_unstable();
+    let available = if available.is_empty() {
+        "none".to_string()
+    } else {
+        available.join(", ")
+    };
+    anyhow!(
+        "Profile '{}' not found in {} (available: {})",
+        name,
+        path.display(),
+        available
+    )
 }
 
 fn resolve_config_path(options: &LoadOptions, env: &Env) -> Result<Option<PathBuf>> {
@@ -265,9 +358,13 @@ fn apply_profile(
     }
     if let Some(password) = &profile.password {
         connection.password = Some(password.clone());
+        connection.password_source = PasswordSource::Profile;
+        connection.password_env = None;
     } else if let Some(env_key) = &profile.password_env {
+        connection.password_env = Some(env_key.clone());
         if let Some(value) = env.get(env_key) {
             connection.password = Some(value);
+            connection.password_source = PasswordSource::Env;
         }
     }
     if let Some(encrypt) = profile.encrypt {
@@ -318,7 +415,7 @@ fn apply_env_overrides(
     _settings: &mut SettingsResolved,
     env: &Env,
 ) {
-    if let Some(url) = env.get_any(&["DATABASE_URL", "DB_URL", "SQLSERVER_URL"]) {
+    if let Some(url) = env.get_any(URL_ENV_KEYS) {
         if let Ok(parsed) = parse_connection_url(&url) {
             if let Some(server) = parsed.server {
                 connection.server = server;
@@ -334,17 +431,22 @@ fn apply_env_overrides(
             }
             if let Some(password) = parsed.password {
                 connection.password = Some(password);
+                connection.password_source = PasswordSource::Url;
+                connection.password_env = None;
+            }
+            if let Some(encrypt) = parsed.encrypt {
+                connection.encrypt = encrypt;
+            }
+            if let Some(trust_cert) = parsed.trust_cert {
+                connection.trust_cert = trust_cert;
+            }
+            if let Some(timeout_ms) = parsed.timeout_ms {
+                connection.timeout_ms = timeout_ms;
             }
         }
     }
 
-    if let Some(server) = env.get_any(&[
-        "SQL_SERVER",
-        "SQLSERVER_HOST",
-        "DB_HOST",
-        "MSSQL_HOST",
-        "SQLCMDSERVER",
-    ]) {
+    if let Some(server) = env.get_any(SERVER_ENV_KEYS) {
         connection.server = server;
     }
     if let Some(port) = env.get_any(&["SQL_PORT", "SQLSERVER_PORT", "DB_PORT", "MSSQL_PORT"]) {
@@ -371,7 +473,7 @@ fn apply_env_overrides(
     ]) {
         connection.user = Some(user);
     }
-    if let Some(password) = env.get_any(&[
+    if let Some((password_key, password)) = env.get_any_with_key(&[
         "SQL_PASSWORD",
         "SA_PASSWORD",
         "MSSQL_SA_PASSWORD",
@@ -381,6 +483,8 @@ fn apply_env_overrides(
         "SQLCMDPASSWORD",
     ]) {
         connection.password = Some(password);
+        connection.password_source = PasswordSource::Env;
+        connection.password_env = Some(password_key);
     }
     if let Some(encrypt) = env.get("SQL_ENCRYPT").and_then(|v| parse_bool(&v)) {
         connection.encrypt = encrypt;
@@ -402,7 +506,8 @@ fn apply_cli_overrides(
     connection: &mut ConnectionSettings,
     _settings: &mut SettingsResolved,
     cli: &CliOverrides,
-) {
+    env: &Env,
+) -> Result<()> {
     if let Some(server) = &cli.server {
         connection.server = server.clone();
     }
@@ -417,6 +522,16 @@ fn apply_cli_overrides(
     }
     if let Some(password) = &cli.password {
         connection.password = Some(password.clone());
+        connection.password_source = PasswordSource::Cli;
+        connection.password_env = None;
+    }
+    if let Some(env_key) = &cli.password_env {
+        connection.password_env = Some(env_key.clone());
+        let value = env
+            .get(env_key)
+            .ok_or_else(|| anyhow!("Password env var not set: {}", env_key))?;
+        connection.password = Some(value);
+        connection.password_source = PasswordSource::Env;
     }
     if let Some(timeout_ms) = cli.timeout_ms {
         connection.timeout_ms = timeout_ms;
@@ -427,6 +542,7 @@ fn apply_cli_overrides(
     if let Some(trust_cert) = cli.trust_cert {
         connection.trust_cert = trust_cert;
     }
+    Ok(())
 }
 
 #[derive(Debug, Default)]
@@ -436,6 +552,9 @@ struct ParsedUrl {
     database: Option<String>,
     user: Option<String>,
     password: Option<String>,
+    encrypt: Option<bool>,
+    trust_cert: Option<bool>,
+    timeout_ms: Option<u64>,
 }
 
 fn parse_connection_url(input: &str) -> Result<ParsedUrl> {
@@ -487,10 +606,11 @@ fn parse_connection_url(input: &str) -> Result<ParsedUrl> {
     }
 
     if let Some(path) = path_part {
-        let db = path.split('?').next().unwrap_or("");
+        let (db, query) = path.split_once('?').unwrap_or((path, ""));
         if !db.is_empty() {
             parsed.database = Some(db.to_string());
         }
+        apply_url_query(query, &mut parsed);
     }
 
     if parsed.server.is_none() && parsed.database.is_none() && parsed.user.is_none() {
@@ -498,6 +618,27 @@ fn parse_connection_url(input: &str) -> Result<ParsedUrl> {
     }
 
     Ok(parsed)
+}
+
+fn apply_url_query(query: &str, parsed: &mut ParsedUrl) {
+    for part in query.split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        let (key, value) = part.split_once('=').unwrap_or((part, ""));
+        match key.to_ascii_lowercase().as_str() {
+            "encrypt" => parsed.encrypt = parse_bool(value),
+            "trustservercertificate" | "trust_server_certificate" | "trust-cert" => {
+                parsed.trust_cert = parse_bool(value);
+            }
+            "timeoutms" | "timeout_ms" | "timeout" => {
+                if let Ok(timeout) = value.parse::<u64>() {
+                    parsed.timeout_ms = Some(timeout);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

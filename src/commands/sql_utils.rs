@@ -25,9 +25,16 @@ pub fn parse_params(raw: &[String]) -> Result<Vec<SqlParam>> {
     Ok(params)
 }
 
-pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) -> String {
+/// Rewrite `@name` references to the `@P{n}` placeholders that bound
+/// parameters use.
+///
+/// # Returns
+///
+/// The rewritten SQL and whether it referenced any parameter, so a caller can
+/// skip `sp_executesql` for SQL that binds nothing.
+pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) -> (String, bool) {
     if params.is_empty() {
-        return sql.to_string();
+        return (sql.to_string(), false);
     }
 
     let mut map = HashMap::new();
@@ -37,6 +44,7 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
     }
 
     let mut out = String::with_capacity(sql.len());
+    let mut matched = false;
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '@' {
@@ -53,6 +61,7 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
                 out.push('@');
             } else if let Some(replacement) = map.get(&ident.to_lowercase()) {
                 out.push_str(replacement);
+                matched = true;
             } else {
                 out.push('@');
                 out.push_str(&ident);
@@ -61,7 +70,7 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
             out.push(ch);
         }
     }
-    out
+    (out, matched)
 }
 
 pub fn split_batches(script: &str) -> Vec<String> {
@@ -99,7 +108,14 @@ struct ScanState {
 }
 
 fn go_repeat_count(line: &str, state: &mut ScanState) -> Option<usize> {
+    // A line that starts inside a string or bracketed identifier continues it,
+    // so a `GO` there is data, not a separator.
+    let continues_literal =
+        state.in_single_quote || state.in_double_quote || state.in_bracket_identifier;
     let visible = visible_sql_text(line, state);
+    if continues_literal {
+        return None;
+    }
     let trimmed = visible.trim();
     if trimmed.is_empty() {
         return None;
@@ -240,9 +256,26 @@ mod tests {
             },
         ];
         let sql = "SELECT * FROM t WHERE a=@foo AND b=@baz";
-        let replaced = replace_named_params(sql, &params, 1);
+        let (replaced, matched) = replace_named_params(sql, &params, 1);
         assert!(replaced.contains("@P1"));
         assert!(replaced.contains("@P2"));
+        assert!(matched);
+    }
+
+    #[test]
+    fn reports_param_named_like_its_placeholder_as_matched() {
+        let params = vec![SqlParam {
+            name: "P1".to_string(),
+            value: "5".to_string(),
+        }];
+        assert_eq!(
+            replace_named_params("SELECT @P1", &params, 1),
+            ("SELECT @P1".to_string(), true)
+        );
+        assert_eq!(
+            replace_named_params("SELECT 1", &params, 1),
+            ("SELECT 1".to_string(), false)
+        );
     }
 
     #[test]
@@ -286,6 +319,48 @@ mod tests {
         let script = "/*\nGO\n*/\nSELECT 1\nGO\nSELECT 2";
         let batches = split_batches(script);
         assert_eq!(batches, vec!["/*\nGO\n*/\nSELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn splits_on_lowercase_indented_go_with_trailing_space() {
+        let script = "SELECT 1\n  go  \nSELECT 2";
+        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn splits_crlf_scripts() {
+        let script = "SELECT 1\r\nGO\r\nSELECT 2\r\n";
+        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn ignores_go_line_inside_multiline_string() {
+        let script = "SELECT 'first\nGO\nlast'\nGO\nSELECT 2";
+        assert_eq!(
+            split_batches(script),
+            vec!["SELECT 'first\nGO\nlast'", "SELECT 2"]
+        );
+    }
+
+    #[test]
+    fn ignores_go_inside_bracket_identifier_and_longer_keywords() {
+        let script = "SELECT 1 AS [\nGO\n]\nGOTO done\ndone:\nGO\nSELECT 2";
+        assert_eq!(
+            split_batches(script),
+            vec!["SELECT 1 AS [\nGO\n]\nGOTO done\ndone:", "SELECT 2"]
+        );
+    }
+
+    #[test]
+    fn keeps_go_with_invalid_count_as_sql_text() {
+        let script = "SELECT 1\nGO x\nSELECT 2";
+        assert_eq!(split_batches(script), vec!["SELECT 1\nGO x\nSELECT 2"]);
+    }
+
+    #[test]
+    fn handles_final_go_and_consecutive_separators() {
+        let script = "SELECT 1\nGO\nGO\nSELECT 2\nGO";
+        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
     }
 
     #[test]

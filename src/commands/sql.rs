@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use serde_json::json;
-use tiberius::Query;
 
 use crate::cli::{CliArgs, SqlArgs};
 use crate::commands::{common, sql_utils};
@@ -13,7 +12,7 @@ use crate::db::client;
 use crate::db::executor;
 use crate::db::types::ResultSet;
 use crate::error::{AppError, ErrorKind};
-use crate::output::{TableOptions, csv, json as json_out, table};
+use crate::output::{TableOptions, csv, json as json_out, raw, table};
 
 const MAX_ROWS_DEFAULT: u64 = 200;
 const MAX_ROWS_MAX: u64 = 2000;
@@ -66,17 +65,15 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         return Err(anyhow!("No SQL batches found"));
     }
 
-    let batches = batches
+    // Only a batch that references a parameter needs `sp_executesql`; every
+    // other batch runs as a plain batch so session state carries over.
+    let (batches, uses_params): (Vec<String>, Vec<bool>) = batches
         .iter()
         .map(|batch| sql_utils::replace_named_params(batch, &params, 1))
-        .collect::<Vec<_>>();
+        .unzip();
+    let param_values: Vec<&str> = params.iter().map(|param| param.value.as_str()).collect();
 
-    if !args.quiet && !args.quiet_target {
-        eprintln!(
-            "Target: {}:{}/{}",
-            resolved.connection.server, resolved.connection.port, resolved.connection.database
-        );
-    }
+    common::print_target_banner(args, &resolved);
 
     if cmd.dry_run {
         if args.quiet {
@@ -99,12 +96,9 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
 
         for (idx, batch) in batches.iter().enumerate() {
             let started = Instant::now();
-            let mut query = Query::new(batch.clone());
-            for param in &params {
-                query.bind(param.value.as_str());
-            }
+            let bound: &[&str] = if uses_params[idx] { &param_values } else { &[] };
 
-            match executor::run_query(query, &mut client).await {
+            match executor::run_batch(batch, bound, &mut client).await {
                 Ok(sets) => {
                     let rows = sets.iter().map(|rs| rs.rows.len()).sum();
                     all_sets.extend(sets);
@@ -125,10 +119,19 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
                         rows: 0,
                         error: Some(message.clone()),
                     });
-                    errors.push(message);
                     if !cmd.continue_on_error {
-                        return Err(err);
+                        // Like `sqlcmd -b`: stop here. Closing the session rolls
+                        // back a transaction the script left open.
+                        if batches.len() == 1 {
+                            return Err(err);
+                        }
+                        return Err(AppError::new(
+                            ErrorKind::Query,
+                            format!("Batch {} of {} failed: {}", idx + 1, batches.len(), message),
+                        )
+                        .into());
                     }
+                    errors.push(message);
                 }
             }
         }
@@ -166,6 +169,29 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(raw_format) = raw_format(&format) {
+        let options = raw::RawOptions {
+            format: raw_format,
+            headers: !cmd.no_headers,
+            null_value: cmd.null_value.clone().unwrap_or_default(),
+            result_set: cmd.result_set,
+            all_result_sets: cmd.all_result_sets,
+        };
+        let body = raw::render_result_sets(&result_sets, &options)?;
+        if let Some(path) = cmd.output.as_ref() {
+            if path.as_os_str() == "-" {
+                if !args.quiet {
+                    print!("{}", body);
+                }
+            } else {
+                fs::write(path, body)?;
+            }
+        } else if !args.quiet {
+            print!("{}", body);
+        }
+        return Ok(());
+    }
+
     if args.quiet {
         return Ok(());
     }
@@ -177,6 +203,15 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     };
 
     let display_sets = truncate_result_sets(&result_sets, max_rows);
+    if display_sets.is_empty() {
+        // Statements such as DDL return no result sets. Without this summary the
+        // command would print nothing at all and a caller could not tell a
+        // successful run from one that never executed.
+        println!(
+            "{}",
+            render_execution_summary(&batch_results, errors.is_empty(), format).output
+        );
+    }
     for (idx, result_set) in display_sets.iter().enumerate() {
         if display_sets.len() > 1 {
             println!("Result set {}", idx + 1);
@@ -196,6 +231,15 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn raw_format(format: &OutputFormat) -> Option<raw::RawFormat> {
+    match format {
+        OutputFormat::Tsv => Some(raw::RawFormat::Tsv),
+        OutputFormat::Csv => Some(raw::RawFormat::Csv),
+        OutputFormat::Jsonl => Some(raw::RawFormat::Jsonl),
+        _ => None,
+    }
 }
 
 fn emit_dry_run(
@@ -235,6 +279,30 @@ fn truncate_result_sets(result_sets: &[ResultSet], max_rows: usize) -> Vec<Resul
             }
         })
         .collect()
+}
+
+/// Render the run summary shown when a script produces no result sets.
+fn render_execution_summary(
+    batches: &[BatchResult],
+    success: bool,
+    format: OutputFormat,
+) -> crate::output::RenderResult {
+    let succeeded = batches.iter().filter(|batch| batch.success).count();
+    let elapsed_ms: u128 = batches.iter().map(|batch| batch.elapsed_ms).sum();
+    let rows = vec![
+        (
+            "Status".to_string(),
+            if success { "ok" } else { "failed" }.to_string(),
+        ),
+        (
+            "Batches".to_string(),
+            format!("{} of {} succeeded", succeeded, batches.len()),
+        ),
+        ("ResultSets".to_string(), "0".to_string()),
+        ("RowsReturned".to_string(), "0".to_string()),
+        ("ElapsedMs".to_string(), elapsed_ms.to_string()),
+    ];
+    table::render_key_value_table("Execution", &rows, format, &TableOptions::default())
 }
 
 fn batch_to_json(batch: &BatchResult) -> serde_json::Value {

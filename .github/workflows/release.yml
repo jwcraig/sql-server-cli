@@ -37,9 +37,27 @@ jobs:
             exit 1
           fi
 
+  # Gates the release on the same checks as ci.yml. Without this the release
+  # only validates the version string, so a tag can publish over failing tests:
+  # v0.1.14 shipped while windows-latest had been red for a month.
+  test:
+    name: Test ${{ matrix.os }}
+    needs: validate-release-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features
+      - run: cargo clippy -- -D warnings
+      - run: cargo fmt --check
+
   build:
     name: Build ${{ matrix.target }}
-    needs: validate-release-version
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

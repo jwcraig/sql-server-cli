@@ -73,7 +73,7 @@ pub fn run(args: &CliArgs, cmd: &TableDataArgs) -> Result<()> {
 
             let replaced_where = where_clause
                 .as_deref()
-                .map(|clause| sql_utils::replace_named_params(clause, &params, 1));
+                .map(|clause| sql_utils::replace_named_params(clause, &params, 1).0);
             let where_sql = replaced_where
                 .as_ref()
                 .map(|clause| format!("WHERE {}", clause))

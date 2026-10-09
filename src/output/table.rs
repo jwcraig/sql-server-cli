@@ -76,6 +76,9 @@ pub fn render_result_set_table(
         OutputFormat::Markdown => {
             table.load_preset(presets::ASCII_MARKDOWN);
         }
+        OutputFormat::Json | OutputFormat::Tsv | OutputFormat::Csv | OutputFormat::Jsonl => {
+            table.load_preset(presets::UTF8_FULL);
+        }
         _ => {
             table.load_preset(presets::UTF8_FULL);
         }
@@ -121,6 +124,9 @@ pub fn render_key_value_table(
     match format {
         OutputFormat::Markdown => {
             table.load_preset(presets::ASCII_MARKDOWN);
+        }
+        OutputFormat::Json | OutputFormat::Tsv | OutputFormat::Csv | OutputFormat::Jsonl => {
+            table.load_preset(presets::UTF8_FULL);
         }
         _ => {
             table.load_preset(presets::UTF8_FULL);

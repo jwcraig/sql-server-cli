@@ -122,6 +122,9 @@ sscli sql "SELECT TOP 5 * FROM Users"
 sscli "SELECT COUNT(*) FROM Users"        # Top-level shorthand for inline SQL
 sscli sql --file [path/to/file]           # Run long queries, execute bulk statements
 cat patch.sql | sscli sql --stdin         # Pipe a script on stdin
+sscli --format tsv --no-headers "SELECT COUNT_BIG(*) FROM Users"
+sscli --trust-cert true --quiet-tls-warning "SELECT 1"
+sscli --password-env SQL_PASSWORD status  # Avoid putting passwords on the command line
 sscli update                              # Check for new releases (alias: sscli upgrade)
 ```
 
@@ -271,6 +274,12 @@ cp config.example.yaml .sql-server/config.yaml
 
 Run `sscli config` to confirm which config file is being used and what values are in effect.
 
+A profile named by `--profile`, `SQL_SERVER_PROFILE` or `defaultProfile` must exist:
+an unknown name is an error that lists the profiles the config defines, rather
+than a silent fall back to `localhost`. When no config file, `--server` or
+`SQL_SERVER`/`SSCLI_URL` names a server, commands warn on stderr that they are
+using the built-in `localhost:1433/master` default.
+
 ### Example `config.yaml`
 
 ```yaml
@@ -300,7 +309,7 @@ load `.env` from the current working directory.
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
 | Config path              | `SQL_SERVER_CONFIG`, `SQLSERVER_CONFIG`                                                                   |
 | Profile                  | `SQL_SERVER_PROFILE`, `SQLSERVER_PROFILE`                                                                 |
-| Connection URL           | `DATABASE_URL`, `DB_URL`, `SQLSERVER_URL`                                                                 |
+| Connection URL           | `SSCLI_URL`, `DATABASE_URL`, `DB_URL`, `SQLSERVER_URL`                                                    |
 | Server                   | `SQL_SERVER`, `SQLSERVER_HOST`, `DB_HOST`, `MSSQL_HOST`                                                   |
 | Port                     | `SQL_PORT`, `SQLSERVER_PORT`, `DB_PORT`, `MSSQL_PORT`                                                     |
 | Database                 | `SQL_DATABASE`, `SQLSERVER_DB`, `DATABASE`, `DB_NAME`, `MSSQL_DATABASE`                                   |
@@ -318,6 +327,9 @@ load `.env` from the current working directory.
 | User     | `SQLCMDUSER`     |
 | Password | `SQLCMDPASSWORD` |
 | Database | `SQLCMDDBNAME`   |
+
+Connection URL query options include `trustServerCertificate=true|false`,
+`encrypt=true|false`, and `timeoutMs=<milliseconds>`.
 
 ## Commands
 
@@ -344,6 +356,9 @@ load `.env` from the current working directory.
 | `query-stats`  | Top cached queries by resource usage           |
 | `backups`      | Recent backup history                          |
 | `compare`      | Schema drift detection between two connections |
+| `compare-counts` | Row-count validation across databases        |
+| `health`       | Constraint, trigger, and identity summaries    |
+| `admin`        | SQL Server maintenance SQL, backup, and DBCC (see [admin](#admin-maintenance-sql)) |
 | `integrations` | Install agent skills/extensions                |
 
 Note: `sscli sessions` filters by client host name using `--client-host`. `--host` is reserved as an alias for `--server`.
@@ -356,8 +371,19 @@ Note: `sscli sessions` filters by client host name using `--client-host`. `--hos
 | Piped / non-TTY | Markdown tables           |
 | `--json` flag   | Stable JSON (v1 contract) |
 | `--csv <file>`  | CSV export                |
+| `--format tsv`  | Raw TSV rows              |
+| `--format csv`  | Raw CSV rows              |
+| `--format jsonl` | One JSON object per row  |
 
 JSON output emits exactly one object to stdout. Errors go to stderr.
+`sql` and `admin sql` print an `Execution` summary table when a script returns no
+result sets, so a statement that succeeded silently is still visible. See
+[admin](#admin-maintenance-sql).
+Raw row formats keep stdout data-only; target banners, progress, warnings, and
+errors go to stderr. Use `--no-headers` for headerless TSV/CSV evidence files
+and `--output <path|->` to write raw row output.
+Use `--quiet-tls-warning` when `--trust-cert true` is intentional and verbose
+logging would otherwise print Tiberius' certificate-validation warning.
 
 ## Safety
 
@@ -384,12 +410,107 @@ Each command returns a stable top-level object:
 | `table-data` | `{ table, columns, rows, total, offset, limit, hasMore, nextOffset }`                              |
 | `sql`        | `{ success, batches, resultSets, csvPaths? }`                                                      |
 | `compare`    | `{ modules, indexes, constraints, tables }` when `--summary`; `{ source, target }` snapshots with full metadata when `--json` without `--summary` |
+| `compare-counts` | `{ sourceDb, targetDb, counts }`                                                               |
+| `health`     | `{ kind, checks }`                                                                                 |
+| `admin sql`  | `{ status, error, partialEffectPossible, elapsedMs, batchCount, batchesSucceeded, batches, resultSetCount, rowsReturned, resultSets, verify }` |
+
+`config --json` never emits plaintext passwords by default. It reports
+`passwordSet`, `passwordSource`, and `passwordEnv` metadata instead.
 
 Errors (stderr):
 
 ```json
 { "error": { "message": "...", "kind": "Config|Connection|Query|Internal" } }
 ```
+
+## Scripts and `GO` batches
+
+`sql --file`, `sql --stdin` and `admin sql` run scripts the way `sqlcmd -b` does:
+
+- A line holding only `GO` (any case, optionally `GO n` to repeat the batch, or a
+  trailing `--` comment) ends a batch. `GO` inside a string, bracketed
+  identifier or comment is left alone.
+- Every batch runs in order on one session. A transaction opened in one batch
+  can be committed in a later one, and `SET` options, `USE` and `#temp` tables
+  carry over, as they do in `sqlcmd`.
+- The first failing batch stops the script with a non-zero exit, and the error
+  names the batch (`Batch 3 of 5 failed: ...`). The session then closes, so the
+  server rolls back a transaction the script left open. `sql --continue-on-error`
+  keeps going instead.
+
+A batch that uses `--param` values runs through `sp_executesql`, so a
+transaction cannot stay open across that batch. Batches that use no parameter
+are unaffected.
+
+`sql` runs any statement, writes included. The `sql` banner on stderr shows the
+target, profile and config file (`Target: host:port/db (profile dev,
+/path/.sql-server/config.yaml)`), so check it before you run a write script.
+
+## admin (maintenance SQL)
+
+`admin sql` runs full-capability maintenance SQL. `GO` splits the script into
+batches, which run in order on one connection and stop at the first failure.
+
+### Execution summary
+
+Maintenance statements usually return no rows, so `admin sql` and `sql` always
+print an `Execution` summary. A successful `DROP DATABASE` is therefore visibly
+different from a command that never ran:
+
+```
+$ sscli admin sql "DROP DATABASE IF EXISTS [WDM_VERIFY];"
+Target: localhost:1433/master
+| Execution    | Value            |
+|--------------|------------------|
+| Status       | ok               |
+| Batches      | 1 of 1 succeeded |
+| ResultSets   | 0                |
+| RowsReturned | 0                |
+| ElapsedMs    | 11               |
+```
+
+Multi-batch scripts also print a per-batch table, so a run that stops halfway
+shows which batches already applied. That matters when an earlier batch leaves
+state behind, such as `ALTER DATABASE ... SET SINGLE_USER` followed by a
+`DROP DATABASE` that fails. Failures exit non-zero with the server message on
+stderr.
+
+A batch is not all-or-nothing. It holds every statement up to the next `GO`, and
+semicolon-separated statements before the failing one have already committed. So
+`Batches 0 of 1 succeeded` means the batch did not complete, not that nothing
+happened, and the summary says so:
+
+```
+| Status       | failed                                                  |
+| Batches      | 0 of 1 succeeded                                        |
+| FailedBatch  | 1 (statements before the failure may have taken effect) |
+```
+
+After any failed batch, read the current state back rather than assuming a
+rollback. In JSON, `partialEffectPossible` carries the same warning.
+
+### Verified maintenance
+
+`Status ok` proves the statement executed, not that it changed anything:
+`DROP DATABASE IF EXISTS` reports success even as a no-op. Use `--verify` to run
+a read-back on the same connection and `--expect-rows` to assert its row count.
+A mismatch prints the summary, then exits non-zero.
+
+```bash
+# Drop a database and prove it is gone
+sscli admin sql "DROP DATABASE [WDM_VERIFY];" \
+  --verify "SELECT name FROM sys.databases WHERE name = 'WDM_VERIFY'" \
+  --expect-rows 0
+
+# Prove a database was created
+sscli admin sql "CREATE DATABASE [WDM_VERIFY];" \
+  --verify "SELECT name FROM sys.databases WHERE name = 'WDM_VERIFY'" \
+  --expect-rows 1
+```
+
+`--verify` without `--expect-rows` reports the read-back rows without asserting
+them. The read-back is skipped when a batch fails, because it would describe a
+half-applied script.
 
 ## compare (schema drift)
 
