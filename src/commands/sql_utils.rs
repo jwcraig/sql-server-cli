@@ -99,7 +99,14 @@ struct ScanState {
 }
 
 fn go_repeat_count(line: &str, state: &mut ScanState) -> Option<usize> {
+    // A line that starts inside a string or bracketed identifier continues it,
+    // so a `GO` there is data, not a separator.
+    let continues_literal =
+        state.in_single_quote || state.in_double_quote || state.in_bracket_identifier;
     let visible = visible_sql_text(line, state);
+    if continues_literal {
+        return None;
+    }
     let trimmed = visible.trim();
     if trimmed.is_empty() {
         return None;
@@ -286,6 +293,48 @@ mod tests {
         let script = "/*\nGO\n*/\nSELECT 1\nGO\nSELECT 2";
         let batches = split_batches(script);
         assert_eq!(batches, vec!["/*\nGO\n*/\nSELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn splits_on_lowercase_indented_go_with_trailing_space() {
+        let script = "SELECT 1\n  go  \nSELECT 2";
+        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn splits_crlf_scripts() {
+        let script = "SELECT 1\r\nGO\r\nSELECT 2\r\n";
+        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn ignores_go_line_inside_multiline_string() {
+        let script = "SELECT 'first\nGO\nlast'\nGO\nSELECT 2";
+        assert_eq!(
+            split_batches(script),
+            vec!["SELECT 'first\nGO\nlast'", "SELECT 2"]
+        );
+    }
+
+    #[test]
+    fn ignores_go_inside_bracket_identifier_and_longer_keywords() {
+        let script = "SELECT 1 AS [\nGO\n]\nGOTO done\ndone:\nGO\nSELECT 2";
+        assert_eq!(
+            split_batches(script),
+            vec!["SELECT 1 AS [\nGO\n]\nGOTO done\ndone:", "SELECT 2"]
+        );
+    }
+
+    #[test]
+    fn keeps_go_with_invalid_count_as_sql_text() {
+        let script = "SELECT 1\nGO x\nSELECT 2";
+        assert_eq!(split_batches(script), vec!["SELECT 1\nGO x\nSELECT 2"]);
+    }
+
+    #[test]
+    fn handles_final_go_and_consecutive_separators() {
+        let script = "SELECT 1\nGO\nGO\nSELECT 2\nGO";
+        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
     }
 
     #[test]

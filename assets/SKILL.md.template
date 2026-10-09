@@ -25,6 +25,8 @@ sscli --format tsv --no-headers "SELECT COUNT_BIG(*) FROM <TableName/ViewName>"
 - For shell-diffable row evidence, use `--format tsv --no-headers --raw`.
 - For row streams consumed by scripts, use `--format jsonl`.
 - Raw row formats keep stdout data-only; diagnostics stay on stderr.
+- `sql --json` returns `{ success, batches, resultSets: [{ columns, rows }] }`;
+  rows are arrays in column order.
 - Output is truncated by default (cells >140 chars, total >25KB). Use `--no-truncate` for full output when you need complete data.
 
 ## Connection and secrets
@@ -42,9 +44,17 @@ sscli status
 
 ## Safety
 
-- `sscli sql` is the canonical raw-SQL surface.
+- `sscli sql` is the canonical raw-SQL surface. It runs any statement,
+  writes included, so check the `Target:` banner (host, database, profile and
+  config file) before a write.
 - For file-backed or batch-oriented execution, prefer `sscli sql --file ...` or
-  `sscli sql --stdin`.
+  `sscli sql --stdin`. Multi-batch `GO` scripts run like `sqlcmd -b`: one
+  session, transactions and `SET` options carry across batches, and the first
+  failing batch stops the script (`Batch N of M failed: ...`) and rolls back
+  any open transaction. No need to fall back to `sqlcmd`.
+- Name the target explicitly with `--profile <name>`. An unknown profile is an
+  error; with no config at all, sscli warns that it is using
+  `localhost:1433/master`.
 - Prefer explicit `--env-file` when loading connection settings from a file.
 
 For planned maintenance, prefer explicit admin commands over dropping to `sqlcmd`:

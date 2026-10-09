@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use serde_json::json;
-use tiberius::Query;
 
 use crate::cli::{CliArgs, SqlArgs};
 use crate::commands::{common, sql_utils};
@@ -66,17 +65,19 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
         return Err(anyhow!("No SQL batches found"));
     }
 
-    let batches = batches
+    // Only a batch that references a parameter needs `sp_executesql`; every
+    // other batch runs as a plain batch so session state carries over.
+    let (batches, uses_params): (Vec<String>, Vec<bool>) = batches
         .iter()
-        .map(|batch| sql_utils::replace_named_params(batch, &params, 1))
-        .collect::<Vec<_>>();
+        .map(|batch| {
+            let replaced = sql_utils::replace_named_params(batch, &params, 1);
+            let changed = replaced != *batch;
+            (replaced, changed)
+        })
+        .unzip();
+    let param_values: Vec<&str> = params.iter().map(|param| param.value.as_str()).collect();
 
-    if !args.quiet && !args.quiet_target {
-        eprintln!(
-            "Target: {}:{}/{}",
-            resolved.connection.server, resolved.connection.port, resolved.connection.database
-        );
-    }
+    common::print_target_banner(args, &resolved);
 
     if cmd.dry_run {
         if args.quiet {
@@ -99,12 +100,9 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
 
         for (idx, batch) in batches.iter().enumerate() {
             let started = Instant::now();
-            let mut query = Query::new(batch.clone());
-            for param in &params {
-                query.bind(param.value.as_str());
-            }
+            let bound: &[&str] = if uses_params[idx] { &param_values } else { &[] };
 
-            match executor::run_query(query, &mut client).await {
+            match executor::run_batch(batch, bound, &mut client).await {
                 Ok(sets) => {
                     let rows = sets.iter().map(|rs| rs.rows.len()).sum();
                     all_sets.extend(sets);
@@ -125,10 +123,16 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
                         rows: 0,
                         error: Some(message.clone()),
                     });
-                    errors.push(message);
                     if !cmd.continue_on_error {
-                        return Err(err);
+                        // Like `sqlcmd -b`: stop here. Closing the session rolls
+                        // back a transaction the script left open.
+                        return Err(AppError::new(
+                            ErrorKind::Query,
+                            format!("Batch {} of {} failed: {}", idx + 1, batches.len(), message),
+                        )
+                        .into());
                     }
+                    errors.push(message);
                 }
             }
         }

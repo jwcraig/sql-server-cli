@@ -274,6 +274,12 @@ cp config.example.yaml .sql-server/config.yaml
 
 Run `sscli config` to confirm which config file is being used and what values are in effect.
 
+A profile named by `--profile`, `SQL_SERVER_PROFILE` or `defaultProfile` must exist:
+an unknown name is an error that lists the profiles the config defines, rather
+than a silent fall back to `localhost`. When no config file, `--server` or
+`SQL_SERVER`/`SSCLI_URL` names a server, commands warn on stderr that they are
+using the built-in `localhost:1433/master` default.
+
 ### Example `config.yaml`
 
 ```yaml
@@ -416,6 +422,29 @@ Errors (stderr):
 ```json
 { "error": { "message": "...", "kind": "Config|Connection|Query|Internal" } }
 ```
+
+## Scripts and `GO` batches
+
+`sql --file`, `sql --stdin` and `admin sql` run scripts the way `sqlcmd -b` does:
+
+- A line holding only `GO` (any case, optionally `GO n` to repeat the batch, or a
+  trailing `--` comment) ends a batch. `GO` inside a string, bracketed
+  identifier or comment is left alone.
+- Every batch runs in order on one session. A transaction opened in one batch
+  can be committed in a later one, and `SET` options, `USE` and `#temp` tables
+  carry over, as they do in `sqlcmd`.
+- The first failing batch stops the script with a non-zero exit, and the error
+  names the batch (`Batch 3 of 5 failed: ...`). The session then closes, so the
+  server rolls back a transaction the script left open. `sql --continue-on-error`
+  keeps going instead.
+
+A batch that uses `--param` values runs through `sp_executesql`, so a
+transaction cannot stay open across that batch. Batches that use no parameter
+are unaffected.
+
+`sql` runs any statement, writes included. The `sql` banner on stderr shows the
+target, profile and config file (`Target: host:port/db (profile dev,
+/path/.sql-server/config.yaml)`), so check it before you run a write script.
 
 ## admin (maintenance SQL)
 

@@ -205,3 +205,103 @@ profiles:
     assert_eq!(value["connection"]["database"], "legacy-db");
     assert!(value["settings"].get("allowWriteDefault").is_none());
 }
+
+/// A command run with no config file and nothing naming a server.
+fn isolated_cmd(temp_dir: &TempDir) -> assert_cmd::Command {
+    let mut cmd = cargo_bin_cmd!("sscli");
+    cmd.current_dir(temp_dir.path())
+        .env_clear()
+        .env("HOME", temp_dir.path())
+        .env("XDG_CONFIG_HOME", temp_dir.path());
+    cmd
+}
+
+#[test]
+fn unknown_profile_is_an_error_that_lists_available_profiles() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let config_path = temp_dir.path().join("config.yaml");
+    fs::write(
+        &config_path,
+        "profiles:\n  dev:\n    server: dev-host\n  prod:\n    server: prod-host\n",
+    )
+    .expect("write config");
+
+    let output = isolated_cmd(&temp_dir)
+        .args(["config", "--profile", "dve", "--config"])
+        .arg(&config_path)
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&output);
+
+    assert!(stderr.contains("Profile 'dve' not found"), "{stderr}");
+    assert!(stderr.contains("available: dev, prod"), "{stderr}");
+}
+
+#[test]
+fn profile_without_any_config_file_is_an_error() {
+    let temp_dir = TempDir::new().expect("temp dir");
+
+    let output = isolated_cmd(&temp_dir)
+        .args(["config", "--profile", "t1-shared"])
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&output);
+
+    assert!(stderr.contains("Profile 't1-shared' requested but no config file was found"));
+}
+
+#[test]
+fn builtin_default_target_warns_on_stderr() {
+    let temp_dir = TempDir::new().expect("temp dir");
+
+    let output = isolated_cmd(&temp_dir)
+        .args(["config", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+
+    assert!(String::from_utf8_lossy(&output).contains("built-in default localhost:1433/master"));
+}
+
+#[test]
+fn explicit_server_does_not_warn_about_builtin_default() {
+    let temp_dir = TempDir::new().expect("temp dir");
+
+    isolated_cmd(&temp_dir)
+        .args(["config", "--json", "--server", "db-host"])
+        .assert()
+        .success()
+        .stderr(predicates::str::is_empty());
+}
+
+#[test]
+fn sql_banner_names_profile_and_config_file() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let config_path = temp_dir.path().join("config.yaml");
+    fs::write(&config_path, "profiles:\n  dev:\n    server: dev-host\n").expect("write config");
+
+    let output = isolated_cmd(&temp_dir)
+        .args(["sql", "--dry-run", "--profile", "dev", "--config"])
+        .arg(&config_path)
+        .arg("SELECT 1")
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&output);
+
+    assert!(
+        stderr.contains("Target: dev-host:1433/master (profile dev, "),
+        "{stderr}"
+    );
+    assert!(stderr.contains("config.yaml)"), "{stderr}");
+}

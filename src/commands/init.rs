@@ -6,11 +6,17 @@ use serde_json::json;
 
 use crate::cli::{CliArgs, InitArgs};
 use crate::commands::common;
-use crate::config::OutputFormat;
+use crate::config::{self, CliOverrides, OutputFormat};
 use crate::output::json as json_out;
 
 pub fn run(args: &CliArgs, cmd: &InitArgs) -> Result<()> {
-    let resolved = common::load_config(args)?;
+    // `--profile` names the profile being created, so it cannot resolve yet;
+    // the config is only loaded for output settings.
+    let overrides = CliOverrides {
+        profile: None,
+        ..common::overrides_from_args(args)
+    };
+    let resolved = config::load_from_system(&overrides)?;
     let format = common::output_format(args, &resolved);
 
     let profile_name = cmd.profile.as_deref().unwrap_or("default");

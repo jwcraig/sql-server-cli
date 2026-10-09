@@ -206,6 +206,7 @@ fn apply_connection_override(
         let parsed = parse_connection_string(raw)?;
         return Ok(ResolvedConfig {
             connection: parsed,
+            uses_builtin_target: false,
             ..resolved
         });
     }

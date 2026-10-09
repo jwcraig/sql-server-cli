@@ -216,12 +216,7 @@ fn emit_or_execute_verified(
     }
 
     let resolved = common::load_config(args)?;
-    if !args.quiet && !args.quiet_target {
-        eprintln!(
-            "Target: {}:{}/{}",
-            resolved.connection.server, resolved.connection.port, resolved.connection.database
-        );
-    }
+    common::print_target_banner(args, &resolved);
 
     let execution = execute_admin_sql(&resolved, sql, verify)?;
     emit_execution(args, &resolved, &execution)?;
@@ -257,30 +252,29 @@ fn execute_admin_sql(
 
             for (idx, batch) in batches.iter().enumerate() {
                 let batch_started = Instant::now();
-                let outcome =
-                    match executor::run_query(Query::new(batch.clone()), &mut client).await {
-                        Ok(sets) => {
-                            let outcome = BatchOutcome {
-                                index: idx + 1,
-                                elapsed_ms: batch_started.elapsed().as_millis(),
-                                result_sets: sets.len(),
-                                rows_returned: sets.iter().map(|set| set.rows.len()).sum(),
-                                error: None,
-                            };
-                            result_sets.extend(sets);
-                            outcome
+                let outcome = match executor::run_batch(batch, &[], &mut client).await {
+                    Ok(sets) => {
+                        let outcome = BatchOutcome {
+                            index: idx + 1,
+                            elapsed_ms: batch_started.elapsed().as_millis(),
+                            result_sets: sets.len(),
+                            rows_returned: sets.iter().map(|set| set.rows.len()).sum(),
+                            error: None,
+                        };
+                        result_sets.extend(sets);
+                        outcome
+                    }
+                    Err(err) => {
+                        failed = true;
+                        BatchOutcome {
+                            index: idx + 1,
+                            elapsed_ms: batch_started.elapsed().as_millis(),
+                            result_sets: 0,
+                            rows_returned: 0,
+                            error: Some(err.to_string()),
                         }
-                        Err(err) => {
-                            failed = true;
-                            BatchOutcome {
-                                index: idx + 1,
-                                elapsed_ms: batch_started.elapsed().as_millis(),
-                                result_sets: 0,
-                                rows_returned: 0,
-                                error: Some(err.to_string()),
-                            }
-                        }
-                    };
+                    }
+                };
                 outcomes.push(outcome);
                 if failed {
                     break;
@@ -291,7 +285,7 @@ fn execute_admin_sql(
             // script, so it is skipped and reported as such.
             let verify_outcome = match verify {
                 Some(request) if !failed => {
-                    let sets = executor::run_query(Query::new(request.sql.clone()), &mut client)
+                    let sets = executor::run_batch(&request.sql, &[], &mut client)
                         .await
                         .context("verification query failed")?;
                     Some(VerifyOutcome {

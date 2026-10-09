@@ -21,7 +21,7 @@ fn sql_json_keeps_banner_on_stderr() {
     cmd.assert()
         .success()
         .stdout(predicate::str::starts_with("{"))
-        .stderr(predicate::str::starts_with("Target: "))
+        .stderr(predicate::str::contains("Target: "))
         .stderr(predicate::str::contains("/"));
 }
 
@@ -61,7 +61,7 @@ fn bare_sql_shorthand_accepts_leading_sql_flags() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("\"batchCount\": 1"))
-        .stderr(predicate::str::starts_with("Target: "));
+        .stderr(predicate::str::contains("Target: "));
 }
 
 #[test]

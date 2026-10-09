@@ -23,10 +23,53 @@ pub fn overrides_from_args(args: &CliArgs) -> CliOverrides {
     }
 }
 
+/// Resolve the connection and settings for a command.
+///
+/// Warns on stderr when nothing named a server, because the built-in
+/// `localhost:1433/master` default is rarely the intended target on a host
+/// without a config file.
+///
+/// # Errors
+///
+/// Returns a `Config` error when the config file is unreadable or a named
+/// profile does not exist.
 pub fn load_config(args: &CliArgs) -> Result<ResolvedConfig> {
     let overrides = overrides_from_args(args);
-    config::load_from_system(&overrides)
-        .map_err(|err| AppError::new(ErrorKind::Config, err.to_string()).into())
+    let resolved = config::load_from_system(&overrides)
+        .map_err(|err| AppError::new(ErrorKind::Config, err.to_string()))?;
+    if resolved.uses_builtin_target && !args.quiet && !args.quiet_target {
+        eprintln!(
+            "Warning: no config file, --server or SQL_SERVER/SSCLI_URL found; using the \
+             built-in default localhost:1433/master. Pass --profile or --server, or create \
+             .sql-server/config.yaml."
+        );
+    }
+    Ok(resolved)
+}
+
+/// Print the `Target:` banner that SQL-executing commands show on stderr.
+///
+/// The banner names the profile and config file whenever one was used, so a
+/// config picked up from the working directory is visible before SQL runs.
+pub fn print_target_banner(args: &CliArgs, resolved: &ResolvedConfig) {
+    if args.quiet || args.quiet_target {
+        return;
+    }
+    let connection = &resolved.connection;
+    match &resolved.config_path {
+        Some(path) => eprintln!(
+            "Target: {}:{}/{} (profile {}, {})",
+            connection.server,
+            connection.port,
+            connection.database,
+            resolved.profile_name,
+            path.display()
+        ),
+        None => eprintln!(
+            "Target: {}:{}/{}",
+            connection.server, connection.port, connection.database
+        ),
+    }
 }
 
 pub fn output_format(args: &CliArgs, resolved: &ResolvedConfig) -> OutputFormat {

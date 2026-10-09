@@ -400,6 +400,7 @@ mod tests {
                 ..ConnectionSettings::default()
             },
             settings: SettingsResolved::default(),
+            uses_builtin_target: false,
         }
     }
 

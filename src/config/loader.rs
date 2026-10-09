@@ -39,7 +39,20 @@ pub struct ResolvedConfig {
     pub profile_name: String,
     pub connection: ConnectionSettings,
     pub settings: SettingsResolved,
+    /// True when no config file, `--server` or env var named a server, so the
+    /// target is the built-in `localhost:1433/master` default.
+    pub uses_builtin_target: bool,
 }
+
+const DEFAULT_PROFILE: &str = "default";
+const URL_ENV_KEYS: &[&str] = &["SSCLI_URL", "DATABASE_URL", "DB_URL", "SQLSERVER_URL"];
+const SERVER_ENV_KEYS: &[&str] = &[
+    "SQL_SERVER",
+    "SQLSERVER_HOST",
+    "DB_HOST",
+    "MSSQL_HOST",
+    "SQLCMDSERVER",
+];
 
 #[derive(Debug, Clone)]
 pub struct ConnectionSettings {
@@ -144,7 +157,11 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
         None => ConfigFile::default(),
     };
 
-    let profile_name = resolve_profile_name(options, env, config_file.default_profile.as_deref());
+    let requested_profile =
+        resolve_profile_name(options, env, config_file.default_profile.as_deref());
+    let profile_name = requested_profile
+        .clone()
+        .unwrap_or_else(|| DEFAULT_PROFILE.to_string());
     let profile_from_cli = options.cli.profile.is_some();
 
     let mut connection = ConnectionSettings::default();
@@ -154,8 +171,18 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
         apply_settings(&mut settings, settings_cfg);
     }
 
-    if let Some(profile) = config_file.profiles.get(&profile_name) {
-        apply_profile(&mut connection, &mut settings, profile, env);
+    match config_file.profiles.get(&profile_name) {
+        Some(profile) => apply_profile(&mut connection, &mut settings, profile, env),
+        // A named profile that does not exist used to fall through to the
+        // built-in localhost default, so a typo silently targeted another server.
+        None if requested_profile.is_some() => {
+            return Err(missing_profile_error(
+                &profile_name,
+                config_path.as_deref(),
+                &config_file,
+            ));
+        }
+        None => {}
     }
 
     // Only let ambient env vars override when the profile was NOT explicitly set via CLI.
@@ -166,25 +193,63 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
     }
     apply_cli_overrides(&mut connection, &mut settings, &options.cli, env)?;
 
+    let env_names_target = !profile_from_cli && env.get_any(URL_ENV_KEYS).is_some()
+        || env.get_any(SERVER_ENV_KEYS).is_some();
+    let uses_builtin_target =
+        config_path.is_none() && options.cli.server.is_none() && !env_names_target;
+
     Ok(ResolvedConfig {
         config_path,
         profile_name,
         connection,
         settings,
+        uses_builtin_target,
     })
 }
 
-fn resolve_profile_name(options: &LoadOptions, env: &Env, default_profile: Option<&str>) -> String {
-    if let Some(profile) = options.cli.profile.as_deref() {
-        return profile.to_string();
-    }
-    if let Some(profile) = env.get_any(&["SQL_SERVER_PROFILE", "SQLSERVER_PROFILE"]) {
-        return profile;
-    }
-    if let Some(profile) = default_profile {
-        return profile.to_string();
-    }
-    "default".to_string()
+/// Return the profile the caller asked for, or `None` when nothing named one.
+///
+/// A name from `--profile`, `SQL_SERVER_PROFILE` or the config's `defaultProfile`
+/// must exist; only the implicit `default` may be absent.
+fn resolve_profile_name(
+    options: &LoadOptions,
+    env: &Env,
+    default_profile: Option<&str>,
+) -> Option<String> {
+    options
+        .cli
+        .profile
+        .clone()
+        .or_else(|| env.get_any(&["SQL_SERVER_PROFILE", "SQLSERVER_PROFILE"]))
+        .or_else(|| default_profile.map(str::to_string))
+}
+
+/// Build the error for a named profile that the config does not define.
+fn missing_profile_error(
+    name: &str,
+    config_path: Option<&Path>,
+    config_file: &ConfigFile,
+) -> anyhow::Error {
+    let Some(path) = config_path else {
+        return anyhow!(
+            "Profile '{}' requested but no config file was found. Create \
+             .sql-server/config.yaml, pass --config, or connect with --server.",
+            name
+        );
+    };
+    let mut available: Vec<&str> = config_file.profiles.keys().map(String::as_str).collect();
+    available.sort_unstable();
+    let available = if available.is_empty() {
+        "none".to_string()
+    } else {
+        available.join(", ")
+    };
+    anyhow!(
+        "Profile '{}' not found in {} (available: {})",
+        name,
+        path.display(),
+        available
+    )
 }
 
 fn resolve_config_path(options: &LoadOptions, env: &Env) -> Result<Option<PathBuf>> {
@@ -350,7 +415,7 @@ fn apply_env_overrides(
     _settings: &mut SettingsResolved,
     env: &Env,
 ) {
-    if let Some(url) = env.get_any(&["SSCLI_URL", "DATABASE_URL", "DB_URL", "SQLSERVER_URL"]) {
+    if let Some(url) = env.get_any(URL_ENV_KEYS) {
         if let Ok(parsed) = parse_connection_url(&url) {
             if let Some(server) = parsed.server {
                 connection.server = server;
@@ -381,13 +446,7 @@ fn apply_env_overrides(
         }
     }
 
-    if let Some(server) = env.get_any(&[
-        "SQL_SERVER",
-        "SQLSERVER_HOST",
-        "DB_HOST",
-        "MSSQL_HOST",
-        "SQLCMDSERVER",
-    ]) {
+    if let Some(server) = env.get_any(SERVER_ENV_KEYS) {
         connection.server = server;
     }
     if let Some(port) = env.get_any(&["SQL_PORT", "SQLSERVER_PORT", "DB_PORT", "MSSQL_PORT"]) {

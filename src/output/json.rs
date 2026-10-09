@@ -104,6 +104,7 @@ mod tests {
             profile_name: "default".to_string(),
             connection: ConnectionSettings::default(),
             settings: SettingsResolved::default(),
+            uses_builtin_target: true,
         };
         let value = config_to_json(&resolved);
         assert_eq!(value["profileName"], "default");
