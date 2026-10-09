@@ -25,9 +25,16 @@ pub fn parse_params(raw: &[String]) -> Result<Vec<SqlParam>> {
     Ok(params)
 }
 
-pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) -> String {
+/// Rewrite `@name` references to the `@P{n}` placeholders that bound
+/// parameters use.
+///
+/// # Returns
+///
+/// The rewritten SQL and whether it referenced any parameter, so a caller can
+/// skip `sp_executesql` for SQL that binds nothing.
+pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) -> (String, bool) {
     if params.is_empty() {
-        return sql.to_string();
+        return (sql.to_string(), false);
     }
 
     let mut map = HashMap::new();
@@ -37,6 +44,7 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
     }
 
     let mut out = String::with_capacity(sql.len());
+    let mut matched = false;
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '@' {
@@ -53,6 +61,7 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
                 out.push('@');
             } else if let Some(replacement) = map.get(&ident.to_lowercase()) {
                 out.push_str(replacement);
+                matched = true;
             } else {
                 out.push('@');
                 out.push_str(&ident);
@@ -61,7 +70,7 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
             out.push(ch);
         }
     }
-    out
+    (out, matched)
 }
 
 pub fn split_batches(script: &str) -> Vec<String> {
@@ -247,9 +256,26 @@ mod tests {
             },
         ];
         let sql = "SELECT * FROM t WHERE a=@foo AND b=@baz";
-        let replaced = replace_named_params(sql, &params, 1);
+        let (replaced, matched) = replace_named_params(sql, &params, 1);
         assert!(replaced.contains("@P1"));
         assert!(replaced.contains("@P2"));
+        assert!(matched);
+    }
+
+    #[test]
+    fn reports_param_named_like_its_placeholder_as_matched() {
+        let params = vec![SqlParam {
+            name: "P1".to_string(),
+            value: "5".to_string(),
+        }];
+        assert_eq!(
+            replace_named_params("SELECT @P1", &params, 1),
+            ("SELECT @P1".to_string(), true)
+        );
+        assert_eq!(
+            replace_named_params("SELECT 1", &params, 1),
+            ("SELECT 1".to_string(), false)
+        );
     }
 
     #[test]

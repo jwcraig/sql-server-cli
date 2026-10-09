@@ -193,10 +193,10 @@ pub fn load_config(options: &LoadOptions, env: &Env) -> Result<ResolvedConfig> {
     }
     apply_cli_overrides(&mut connection, &mut settings, &options.cli, env)?;
 
-    let env_names_target = !profile_from_cli && env.get_any(URL_ENV_KEYS).is_some()
-        || env.get_any(SERVER_ENV_KEYS).is_some();
-    let uses_builtin_target =
-        config_path.is_none() && options.cli.server.is_none() && !env_names_target;
+    let uses_builtin_target = config_path.is_none()
+        && options.cli.server.is_none()
+        && env.get_any(URL_ENV_KEYS).is_none()
+        && env.get_any(SERVER_ENV_KEYS).is_none();
 
     Ok(ResolvedConfig {
         config_path,

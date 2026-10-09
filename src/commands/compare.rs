@@ -117,12 +117,22 @@ pub fn run(args: &CliArgs, cmd: &CompareArgs) -> Result<()> {
     let source_profile = cmd.source.clone().or_else(|| args.profile.clone());
     let target_profile = cmd.target.clone();
 
+    // With a connection string, `--source`/`--target` is only a label, so it
+    // must not be resolved as a profile.
     let source_cfg = apply_connection_override(
-        resolve_profile(&base_overrides, source_profile.as_deref())?,
+        resolve_profile(
+            &base_overrides,
+            source_profile
+                .as_deref()
+                .filter(|_| cmd.source_connection.is_none()),
+        )?,
         &cmd.source_connection,
     )?;
     let target_cfg = apply_connection_override(
-        resolve_profile(&base_overrides, Some(&target_profile))?,
+        resolve_profile(
+            &base_overrides,
+            Some(target_profile.as_str()).filter(|_| cmd.target_connection.is_none()),
+        )?,
         &cmd.target_connection,
     )?;
 

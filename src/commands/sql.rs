@@ -69,11 +69,7 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
     // other batch runs as a plain batch so session state carries over.
     let (batches, uses_params): (Vec<String>, Vec<bool>) = batches
         .iter()
-        .map(|batch| {
-            let replaced = sql_utils::replace_named_params(batch, &params, 1);
-            let changed = replaced != *batch;
-            (replaced, changed)
-        })
+        .map(|batch| sql_utils::replace_named_params(batch, &params, 1))
         .unzip();
     let param_values: Vec<&str> = params.iter().map(|param| param.value.as_str()).collect();
 
@@ -126,6 +122,9 @@ pub fn run(args: &CliArgs, cmd: &SqlArgs) -> Result<()> {
                     if !cmd.continue_on_error {
                         // Like `sqlcmd -b`: stop here. Closing the session rolls
                         // back a transaction the script left open.
+                        if batches.len() == 1 {
+                            return Err(err);
+                        }
                         return Err(AppError::new(
                             ErrorKind::Query,
                             format!("Batch {} of {} failed: {}", idx + 1, batches.len(), message),

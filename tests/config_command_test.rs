@@ -305,3 +305,46 @@ fn sql_banner_names_profile_and_config_file() {
     );
     assert!(stderr.contains("config.yaml)"), "{stderr}");
 }
+
+#[test]
+fn compare_label_with_connection_string_is_not_a_profile() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let unreachable = "Server=127.0.0.1,1;Database=app;User ID=sa;Password=x";
+
+    let output = isolated_cmd(&temp_dir)
+        .args([
+            "compare",
+            "--target",
+            "prod",
+            "--source-connection",
+            unreachable,
+            "--target-connection",
+            unreachable,
+            "--summary",
+            "--timeout",
+            "2000",
+        ])
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&output);
+
+    assert!(!stderr.contains("Profile 'prod'"), "{stderr}");
+}
+
+#[test]
+fn init_ignores_profile_selected_by_environment() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let config_path = temp_dir.path().join("new.yaml");
+
+    isolated_cmd(&temp_dir)
+        .env("SQL_SERVER_PROFILE", "dev")
+        .args(["init", "--profile", "dev", "--path"])
+        .arg(&config_path)
+        .assert()
+        .success();
+
+    assert!(config_path.is_file());
+}
