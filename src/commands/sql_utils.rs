@@ -73,30 +73,48 @@ pub fn replace_named_params(sql: &str, params: &[SqlParam], start_index: usize) 
     (out, matched)
 }
 
+/// Split a script into batches on `GO` lines, as `sqlcmd` does.
+///
+/// Each batch is the script text between two `GO` lines, byte for byte,
+/// line endings and surrounding whitespace included. The server stores that
+/// text as a module definition, so trimming it would make a `CREATE TRIGGER`
+/// differ from the one `sqlcmd` creates. Whitespace-only batches are dropped.
+///
+/// # Arguments
+///
+/// * `script` - full script text; a leading UTF-8 byte order mark is ignored
+///
+/// # Returns
+///
+/// Batches in execution order, with `GO n` repeating its batch `n` times.
 pub fn split_batches(script: &str) -> Vec<String> {
+    let script = script.strip_prefix('\u{feff}').unwrap_or(script);
     let mut batches = Vec::new();
-    let mut current = Vec::new();
     let mut state = ScanState::default();
+    let mut batch_start = 0;
+    let mut line_start = 0;
 
-    for line in script.lines() {
-        if let Some(repeat) = go_repeat_count(line, &mut state) {
-            if !current.is_empty() {
-                let batch = current.join("\n").trim().to_string();
-                for _ in 0..repeat {
-                    batches.push(batch.clone());
-                }
-                current.clear();
-            }
-        } else {
-            current.push(line.to_string());
+    // `split_inclusive` keeps each line's `\n` (and any `\r` before it), so
+    // byte offsets map straight back into `script`.
+    for line in script.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let content = line.trim_end_matches(['\n', '\r']);
+        if let Some(repeat) = go_repeat_count(content, &mut state) {
+            push_batch(&mut batches, &script[batch_start..line_start], repeat);
+            batch_start = line_end;
         }
+        line_start = line_end;
     }
-
-    if !current.is_empty() {
-        batches.push(current.join("\n").trim().to_string());
-    }
+    push_batch(&mut batches, &script[batch_start..], 1);
 
     batches
+}
+
+fn push_batch(batches: &mut Vec<String>, batch: &str, repeat: usize) {
+    if batch.trim().is_empty() {
+        return;
+    }
+    batches.extend(std::iter::repeat_n(batch, repeat).map(str::to_string));
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -140,11 +158,7 @@ fn go_repeat_count(line: &str, state: &mut ScanState) -> Option<usize> {
 
 fn visible_sql_text(line: &str, state: &mut ScanState) -> String {
     let mut visible = String::new();
-    let mut chars = line
-        .strip_prefix('\u{feff}')
-        .unwrap_or(line)
-        .chars()
-        .peekable();
+    let mut chars = line.chars().peekable();
 
     while let Some(ch) = chars.next() {
         if state.block_comment_depth > 0 {
@@ -283,54 +297,54 @@ mod tests {
         let script = "SELECT 1\nGO\nSELECT 2\nGO\nSELECT 3";
         let batches = split_batches(script);
         assert_eq!(batches.len(), 3);
-        assert_eq!(batches[0], "SELECT 1");
+        assert_eq!(batches[0], "SELECT 1\n");
     }
 
     #[test]
     fn splits_batches_on_go_with_repeat_count() {
         let script = "SELECT 1\nGO 2\nSELECT 3";
         let batches = split_batches(script);
-        assert_eq!(batches, vec!["SELECT 1", "SELECT 1", "SELECT 3"]);
+        assert_eq!(batches, vec!["SELECT 1\n", "SELECT 1\n", "SELECT 3"]);
     }
 
     #[test]
     fn ignores_go_inside_single_quoted_string() {
         let script = "SELECT 'GO'\nGO\nSELECT 2";
         let batches = split_batches(script);
-        assert_eq!(batches, vec!["SELECT 'GO'", "SELECT 2"]);
+        assert_eq!(batches, vec!["SELECT 'GO'\n", "SELECT 2"]);
     }
 
     #[test]
     fn ignores_go_inside_comments() {
         let script = "SELECT 1\n-- GO\n/* GO */\nGO\nSELECT 2";
         let batches = split_batches(script);
-        assert_eq!(batches, vec!["SELECT 1\n-- GO\n/* GO */", "SELECT 2"]);
+        assert_eq!(batches, vec!["SELECT 1\n-- GO\n/* GO */\n", "SELECT 2"]);
     }
 
     #[test]
     fn supports_go_followed_by_comment() {
         let script = "SELECT 1\nGO -- split here\nSELECT 2";
         let batches = split_batches(script);
-        assert_eq!(batches, vec!["SELECT 1", "SELECT 2"]);
+        assert_eq!(batches, vec!["SELECT 1\n", "SELECT 2"]);
     }
 
     #[test]
     fn ignores_go_inside_multiline_block_comment() {
         let script = "/*\nGO\n*/\nSELECT 1\nGO\nSELECT 2";
         let batches = split_batches(script);
-        assert_eq!(batches, vec!["/*\nGO\n*/\nSELECT 1", "SELECT 2"]);
+        assert_eq!(batches, vec!["/*\nGO\n*/\nSELECT 1\n", "SELECT 2"]);
     }
 
     #[test]
     fn splits_on_lowercase_indented_go_with_trailing_space() {
         let script = "SELECT 1\n  go  \nSELECT 2";
-        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+        assert_eq!(split_batches(script), vec!["SELECT 1\n", "SELECT 2"]);
     }
 
     #[test]
     fn splits_crlf_scripts() {
         let script = "SELECT 1\r\nGO\r\nSELECT 2\r\n";
-        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+        assert_eq!(split_batches(script), vec!["SELECT 1\r\n", "SELECT 2\r\n"]);
     }
 
     #[test]
@@ -338,7 +352,7 @@ mod tests {
         let script = "SELECT 'first\nGO\nlast'\nGO\nSELECT 2";
         assert_eq!(
             split_batches(script),
-            vec!["SELECT 'first\nGO\nlast'", "SELECT 2"]
+            vec!["SELECT 'first\nGO\nlast'\n", "SELECT 2"]
         );
     }
 
@@ -347,7 +361,7 @@ mod tests {
         let script = "SELECT 1 AS [\nGO\n]\nGOTO done\ndone:\nGO\nSELECT 2";
         assert_eq!(
             split_batches(script),
-            vec!["SELECT 1 AS [\nGO\n]\nGOTO done\ndone:", "SELECT 2"]
+            vec!["SELECT 1 AS [\nGO\n]\nGOTO done\ndone:\n", "SELECT 2"]
         );
     }
 
@@ -360,7 +374,19 @@ mod tests {
     #[test]
     fn handles_final_go_and_consecutive_separators() {
         let script = "SELECT 1\nGO\nGO\nSELECT 2\nGO";
-        assert_eq!(split_batches(script), vec!["SELECT 1", "SELECT 2"]);
+        assert_eq!(split_batches(script), vec!["SELECT 1\n", "SELECT 2\n"]);
+    }
+
+    #[test]
+    fn keeps_batch_text_verbatim_and_drops_byte_order_mark() {
+        let script = "\u{feff}-- header\nCREATE PROC p\nAS\n\tSELECT 1;  \n\nGO\n\n  SELECT 2\n";
+        assert_eq!(
+            split_batches(script),
+            vec![
+                "-- header\nCREATE PROC p\nAS\n\tSELECT 1;  \n\n",
+                "\n  SELECT 2\n"
+            ]
+        );
     }
 
     #[test]
@@ -369,7 +395,7 @@ mod tests {
         let batches = split_batches(script);
         assert_eq!(
             batches,
-            vec!["/* outer\n/* inner */\nGO\n*/\nSELECT 1", "SELECT 2"]
+            vec!["/* outer\n/* inner */\nGO\n*/\nSELECT 1\n", "SELECT 2"]
         );
     }
 }

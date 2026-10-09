@@ -236,8 +236,7 @@ fn execute_admin_sql(
     sql: &str,
     verify: Option<&VerifyRequest>,
 ) -> Result<AdminExecution> {
-    let mut batches = sql_utils::split_batches(sql);
-    batches.retain(|batch| !batch.trim().is_empty());
+    let batches = sql_utils::split_batches(sql);
     if batches.is_empty() {
         return Err(anyhow!("No SQL batches found"));
     }

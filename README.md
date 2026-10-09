@@ -430,6 +430,9 @@ Errors (stderr):
 - A line holding only `GO` (any case, optionally `GO n` to repeat the batch, or a
   trailing `--` comment) ends a batch. `GO` inside a string, bracketed
   identifier or comment is left alone.
+- Each batch is sent byte for byte, line endings and blank lines included, so
+  a `CREATE TRIGGER` or `CREATE PROCEDURE` stores the same definition `sqlcmd`
+  would. A leading UTF-8 byte order mark is ignored.
 - Every batch runs in order on one session. A transaction opened in one batch
   can be committed in a later one, and `SET` options, `USE` and `#temp` tables
   carry over, as they do in `sqlcmd`.
