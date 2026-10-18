@@ -127,6 +127,17 @@ impl ResultSetCollector {
     }
 }
 
+/// A decimal as `{int}.{dec}` text, the sign in front. tiberius's own Display puts the
+/// sign of a negative fraction after the point and drops it when the integer part is 0
+/// (-12.05 as "-12.-5", -0.05 as "0.-5"). A scale of 0 keeps tiberius's ".0".
+fn numeric_text(n: &tiberius::numeric::Numeric) -> String {
+    let scale = usize::from(n.scale());
+    let sign = if n.value() < 0 { "-" } else { "" };
+    let digits = format!("{:0>width$}", n.value().unsigned_abs(), width = scale + 1);
+    let (int, dec) = digits.split_at(digits.len() - scale);
+    format!("{sign}{int}.{}", if dec.is_empty() { "0" } else { dec })
+}
+
 fn map_columns(columns: &[tiberius::Column]) -> Vec<Column> {
     columns
         .iter()
@@ -161,7 +172,7 @@ fn map_column_data(data: &tiberius::ColumnData<'_>) -> Value {
             .unwrap_or(Value::Null),
         Numeric(value) => value
             .as_ref()
-            .map(|v| Value::Text(v.to_string()))
+            .map(|v| Value::Text(numeric_text(v)))
             .unwrap_or(Value::Null),
         Xml(value) => value
             .as_ref()
@@ -378,5 +389,21 @@ mod tests {
         assert!(result_sets[0].rows.is_empty());
         assert_eq!(result_sets[1].columns[0].name, "second_empty");
         assert!(result_sets[1].rows.is_empty());
+    }
+
+    #[test]
+    fn numeric_text_keeps_the_sign_of_negative_fractions() {
+        let text =
+            |value, scale| numeric_text(&tiberius::numeric::Numeric::new_with_scale(value, scale));
+        assert_eq!(text(-25, 1), "-2.5");
+        assert_eq!(text(-5, 2), "-0.05");
+        assert_eq!(text(-50, 2), "-0.50");
+        assert_eq!(text(-1205, 2), "-12.05");
+        assert_eq!(text(-100, 2), "-1.00");
+        assert_eq!(text(-500, 4), "-0.0500");
+        assert_eq!(text(150, 2), "1.50");
+        assert_eq!(text(0, 2), "0.00");
+        assert_eq!(text(-3, 0), "-3.0");
+        assert_eq!(text(3, 0), "3.0");
     }
 }
