@@ -15,11 +15,6 @@ operations.
 
 ## Background
 
-During a PlantLogiq UAT merge/restore workflow, `sscli status`, `describe`,
-`sql`, markdown output, and explicit connection flags were useful for rapid SQL
-Server inspection. The workflow still fell back to raw `docker exec ... sqlcmd`
-for maintenance commands, raw evidence files, and restore validation.
-
 The current repo direction already supports full SQL execution. The README
 documents `sql` as the canonical raw-SQL surface and says the shipped tool is
 intended to be full-capability. There is an older read-only validator in
@@ -46,7 +41,7 @@ formats, connection ergonomics, and first-class maintenance workflows.
 - Do not turn `sscli` into an interactive TUI.
 - Do not make a locked-down or read-only distribution in this plan.
 - Do not hide high-risk operations behind vague commands.
-- Do not implement PlantLogiq-specific object-key logic in the generic tool.
+- Do not implement application-specific object-key logic in the generic tool.
 - Do not replace SQL Server backup/restore semantics with a custom abstraction
   that obscures what SQL Server will execute.
 
